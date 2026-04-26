@@ -19,6 +19,14 @@ def run(product_index_payload: dict[str, Any]) -> dict[str, Any]:
             "product_key": product["product_key"],
             "product_url": url,
             "saved_path": str(save_path),
+            "supplier_category_name": product.get("supplier_category_name"),
+            "category_key": product.get("category_key"),
+            "listing_snapshot": {
+                "title_listing": product["listing"].get("title_listing"),
+                "price_listing": product["listing"].get("price_listing"),
+                "old_price_listing": product["listing"].get("old_price_listing"),
+                "image_preview": product["listing"].get("image_preview"),
+            },
         })
     return {
         "supplier_key": "demiand",
