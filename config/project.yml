@@ -1,0 +1,16 @@
+project_name: CS-Kaspi
+timezone: Asia/Almaty
+
+paths:
+  input_official_dir: input/official
+  input_market_dir: input/market
+  artifacts_state_dir: artifacts/state
+  artifacts_raw_dir: artifacts/raw
+  artifacts_preview_dir: artifacts/preview
+  artifacts_reports_dir: artifacts/reports
+  artifacts_exports_dir: artifacts/exports
+
+runtime:
+  continue_on_market_errors: true
+  use_last_market_state_if_refresh_failed: true
+  write_pretty_json: true

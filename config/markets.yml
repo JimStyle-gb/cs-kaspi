@@ -1,0 +1,13 @@
+markets:
+  ozon:
+    enabled: true
+    role: price_and_availability_only
+  wb:
+    enabled: true
+    role: price_and_availability_only
+
+sellable_rules:
+  sellable_if_any_market_found: true
+  preferred_market_order:
+    - ozon
+    - wb

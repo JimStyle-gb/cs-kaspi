@@ -1,0 +1,9 @@
+supplier_key: supplier_2
+brand: SUPPLIER_2
+enabled: false
+
+official_sources:
+  catalog_urls: []
+  manuals_enabled: false
+
+categories: []
