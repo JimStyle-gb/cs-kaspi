@@ -1,30 +1,55 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any
 
 from scripts.cs_kaspi.core.time_utils import now_iso
 from scripts.cs_kaspi.core.write_json import write_json
 from scripts.cs_kaspi.core.hashing import stable_hash
-from .utils import make_soup, normalize_text, parse_price_to_number, extract_json_ld, supplier_state_paths
+from .utils import make_soup, normalize_text, parse_price_to_number, extract_json_ld, supplier_state_paths, slug_from_url, get_supplier_config
 
 
-def _extract_meta_value(text: str, label: str) -> str | None:
-    marker = f"{label}:"
-    if marker not in text:
+def _clean_product_id(value: str | None) -> str | None:
+    cleaned = normalize_text(value)
+    if not cleaned:
         return None
-    value = text.split(marker, 1)[1].split("Категории:", 1)[0].split("Метка:", 1)[0].strip()
-    return normalize_text(value)
+    cleaned = re.split(r"Категори[яи]:|Метк[аи]:", cleaned, maxsplit=1)[0].strip()
+    cleaned = cleaned.strip(" -,")
+    return cleaned or None
 
 
-def _extract_categories(text: str) -> list[str]:
-    if "Категории:" not in text:
+def _extract_meta_value(meta_text: str, label: str) -> str | None:
+    marker = f"{label}:"
+    if marker not in meta_text:
+        return None
+    tail = meta_text.split(marker, 1)[1]
+    tail = re.split(r"Категори[яи]:|Метк[аи]:", tail, maxsplit=1)[0]
+    return _clean_product_id(tail)
+
+
+def _extract_categories_from_meta(meta_text: str) -> list[str]:
+    match = re.search(r"Категори[яи]:\s*(.+?)(?:Метк[аи]:|$)", meta_text)
+    if not match:
         return []
-    tail = text.split("Категории:", 1)[1].split("Метка:", 1)[0]
-    return [normalize_text(x) for x in tail.split(",") if normalize_text(x)]
+    return [normalize_text(x) for x in match.group(1).split(",") if normalize_text(x)]
+
+
+def _pick_available(soup, offers: dict[str, Any]) -> bool | None:
+    availability = offers.get("availability") if isinstance(offers, dict) else None
+    if isinstance(availability, str) and availability.endswith("InStock"):
+        return True
+    stock_tag = soup.select_one(".stock")
+    stock_text = normalize_text(stock_tag.get_text(" ", strip=True) if stock_tag else None).lower()
+    if "в наличии" in stock_text:
+        return True
+    if stock_text:
+        return False
+    return None
 
 
 def run(product_pages_payload: dict[str, Any]) -> dict[str, Any]:
+    mapping = get_supplier_config().get("category_mapping", {})
     products: list[dict[str, Any]] = []
 
     for page in product_pages_payload.get("pages", []):
@@ -32,7 +57,10 @@ def run(product_pages_payload: dict[str, Any]) -> dict[str, Any]:
         soup = make_soup(html_text)
 
         title = normalize_text(soup.select_one("h1").get_text(" ", strip=True) if soup.select_one("h1") else None)
-        meta_text = normalize_text(soup.select_one(".product_meta").get_text(" ", strip=True) if soup.select_one(".product_meta") else None)
+        meta_tag = soup.select_one(".product_meta")
+        meta_text = normalize_text(meta_tag.get_text(" ", strip=True) if meta_tag else None)
+        sku_tag = soup.select_one(".product_meta .sku, .sku_wrapper .sku")
+        sku_value = _clean_product_id(sku_tag.get_text(" ", strip=True) if sku_tag else None)
         short_desc_tag = soup.select_one(".woocommerce-product-details__short-description")
         short_desc = normalize_text(short_desc_tag.get_text(" ", strip=True) if short_desc_tag else None)
         description_tag = soup.select_one("#tab-description, .woocommerce-Tabs-panel--description")
@@ -56,7 +84,7 @@ def run(product_pages_payload: dict[str, Any]) -> dict[str, Any]:
                 images.append(href)
         if not images:
             for img in soup.select(".woocommerce-product-gallery img"):
-                src = img.get("src") or img.get("data-large_image")
+                src = img.get("data-large_image") or img.get("src")
                 if src and src not in images:
                     images.append(src)
 
@@ -64,29 +92,34 @@ def run(product_pages_payload: dict[str, Any]) -> dict[str, Any]:
         product_graph = next((item for item in json_ld if item.get("@type") == "Product"), {})
         offers = product_graph.get("offers") if isinstance(product_graph.get("offers"), dict) else {}
         breadcrumbs = [normalize_text(x.get_text(" ", strip=True)) for x in soup.select(".woocommerce-breadcrumb a, .woocommerce-breadcrumb span") if normalize_text(x.get_text(" ", strip=True))]
-        categories = _extract_categories(meta_text or "")
+        categories = [normalize_text(x.get_text(" ", strip=True)) for x in soup.select(".product_meta .posted_in a") if normalize_text(x.get_text(" ", strip=True))]
+        if not categories:
+            categories = _extract_categories_from_meta(meta_text or "")
+        supplier_category_name = page.get("supplier_category_name") or next((x for x in categories if x in mapping), None) or (categories[0] if categories else None)
+        category_key = page.get("category_key") or mapping.get(supplier_category_name or "")
+        product_id = sku_value or _extract_meta_value(meta_text or "", "Артикул") or _clean_product_id(product_graph.get("sku"))
 
         product = {
             "product_key": page["product_key"],
             "supplier_key": "demiand",
-            "supplier_category_name": categories[0] if categories else None,
-            "category_key": None,
+            "supplier_category_name": supplier_category_name,
+            "category_key": category_key,
             "brand": "DEMIAND",
             "model_key": None,
             "variant_key": None,
             "official": {
                 "exists": True,
                 "status": "active",
-                "product_id": _extract_meta_value(meta_text or "", "Артикул") or product_graph.get("sku"),
+                "product_id": product_id,
                 "url": page["product_url"],
-                "slug": Path(page["product_url"].rstrip('/')).name,
+                "slug": slug_from_url(page["product_url"]),
                 "title_official": title,
                 "short_description": short_desc,
                 "description_official": description_text,
-                "price": parse_price_to_number(current_price_tag.get_text(" ", strip=True) if current_price_tag else None) or product_graph.get("offers", {}).get("price"),
+                "price": parse_price_to_number(current_price_tag.get_text(" ", strip=True) if current_price_tag else None) or parse_price_to_number(str(offers.get("price"))) if offers else None,
                 "old_price": parse_price_to_number(old_price_tag.get_text(" ", strip=True) if old_price_tag else None),
                 "currency": "RUB",
-                "available": True if offers.get("availability", "").endswith("InStock") else None,
+                "available": _pick_available(soup, offers),
                 "images": images,
                 "specs_raw": attrs,
                 "package": {
@@ -97,6 +130,7 @@ def run(product_pages_payload: dict[str, Any]) -> dict[str, Any]:
                 "checked_at": now_iso(),
                 "source_hash": "",
             },
+            "listing_snapshot": page.get("listing_snapshot", {}),
             "meta": {
                 "parsed_ok": True,
                 "parse_errors": [],
