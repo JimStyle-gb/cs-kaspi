@@ -1,0 +1,23 @@
+name: Export_Pauses
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install -r requirements.txt
+      - name: Run command
+        run: python -m scripts.cs_kaspi.commands.export_pauses
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: export_pauses_artifacts
+          path: artifacts
+          if-no-files-found: warn
