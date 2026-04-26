@@ -7,6 +7,17 @@ from scripts.cs_kaspi.core.time_utils import now_iso
 from .utils import make_soup, normalize_text, parse_price_to_number, slug_from_url
 
 
+def _pick_preview_image(card) -> str | None:
+    image = card.select_one("img")
+    if not image:
+        return None
+    for attr in ("data-src", "data-lazy-src", "data-wood-src", "data-srcset", "src"):
+        value = image.get(attr)
+        if value and "lazy.svg" not in value:
+            return value.split(",")[0].strip()
+    return None
+
+
 def run(catalog_pages_payload: dict[str, Any]) -> dict[str, Any]:
     items: list[dict[str, Any]] = []
 
@@ -19,7 +30,6 @@ def run(catalog_pages_payload: dict[str, Any]) -> dict[str, Any]:
             title_tag = card.select_one(".wd-entities-title, h2, h3")
             price_tag = card.select_one(".price ins .woocommerce-Price-amount, .price .woocommerce-Price-amount")
             old_price_tag = card.select_one(".price del .woocommerce-Price-amount")
-            image = card.select_one("img")
             product_url = link.get("href") if link else None
             if not product_url:
                 continue
@@ -33,7 +43,7 @@ def run(catalog_pages_payload: dict[str, Any]) -> dict[str, Any]:
                     "price_listing": parse_price_to_number(price_tag.get_text(" ", strip=True) if price_tag else None),
                     "old_price_listing": parse_price_to_number(old_price_tag.get_text(" ", strip=True) if old_price_tag else None),
                     "currency": "RUB",
-                    "image_preview": image.get("src") or image.get("data-src") if image else None,
+                    "image_preview": _pick_preview_image(card),
                     "page_number": page["page_number"],
                     "position_on_page": position,
                 },
