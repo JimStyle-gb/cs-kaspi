@@ -4,13 +4,13 @@ import json
 import re
 from pathlib import Path
 from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse, unquote
 
 import requests
 from bs4 import BeautifulSoup
 
 from scripts.cs_kaspi.core.read_yaml import read_yaml
-from scripts.cs_kaspi.core.file_paths import ROOT, get_path
+from scripts.cs_kaspi.core.file_paths import ROOT
 
 SUPPLIER_CONFIG_PATH = ROOT / "config" / "suppliers" / "demiand.yml"
 MODEL_SPECS_PATH = ROOT / "config" / "model_specs" / "demiand_air_fryers.yml"
@@ -18,6 +18,14 @@ MODEL_SPECS_PATH = ROOT / "config" / "model_specs" / "demiand_air_fryers.yml"
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0 Safari/537.36",
     "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
+}
+
+CATEGORY_SINGULAR = {
+    "air_fryers": "air_fryer",
+    "air_fryer_accessories": "air_fryer_accessory",
+    "blenders": "blender",
+    "coffee_makers": "coffee_maker",
+    "ovens": "oven",
 }
 
 
@@ -42,7 +50,8 @@ def save_text(path: Path, text: str) -> None:
 
 
 def slug_from_url(url: str) -> str:
-    return Path(urlparse(url).path.strip("/")).name
+    raw = Path(urlparse(url).path.strip("/")).name
+    return unquote(raw)
 
 
 def normalize_text(value: str | None) -> str:
@@ -56,8 +65,24 @@ def parse_price_to_number(raw: str | None) -> int | None:
     return int(digits) if digits else None
 
 
-def build_product_key(category_key: str, slug: str) -> str:
-    return f"demiand_{category_key.rstrip('s')}_{slug.replace('-', '_')}"
+def slugify_key(text: str | None) -> str:
+    text = unquote(text or "").lower().replace("ё", "е")
+    text = text.replace("wifi", " wifi ")
+    text = re.sub(r"[^a-zа-я0-9]+", "_", text, flags=re.IGNORECASE)
+    text = re.sub(r"_+", "_", text).strip("_")
+    # keep ascii-ish, but allow roman model/article fragments already present
+    return text
+
+
+def build_product_key(category_key: str, slug_or_name: str, model_key: str | None = None, variant_key: str | None = None, article: str | None = None) -> str:
+    base = model_key or article or slug_or_name
+    base_slug = slugify_key(base)
+    variant_slug = slugify_key(variant_key) if variant_key else None
+    category_part = CATEGORY_SINGULAR.get(category_key, category_key.rstrip("s"))
+    pieces = ["demiand", category_part, base_slug]
+    if variant_slug and variant_slug not in base_slug:
+        pieces.append(variant_slug)
+    return "_".join([p for p in pieces if p])
 
 
 def make_soup(html_text: str) -> BeautifulSoup:
