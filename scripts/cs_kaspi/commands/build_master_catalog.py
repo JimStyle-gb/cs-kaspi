@@ -1,36 +1,80 @@
 from __future__ import annotations
-from scripts.cs_kaspi.core.file_paths import ensure_base_dirs, get_path, ROOT
+
+from scripts.cs_kaspi.core.file_paths import ensure_base_dirs, get_path
+from scripts.cs_kaspi.core.read_json import read_json
 from scripts.cs_kaspi.core.write_json import write_json
-from scripts.cs_kaspi.core.read_yaml import read_yaml
-from scripts.cs_kaspi.catalog.build_master_catalog import run as build_master
-from scripts.cs_kaspi.markets.merge_market_data import run as merge_market
-from scripts.cs_kaspi.kaspi_policy.build_kaspi_offer import run as build_offer
-from scripts.cs_kaspi.kaspi_policy.build_kaspi_status import run as build_status
+
+from scripts.cs_kaspi.catalog.merge_official_products import run as merge_official_products
+from scripts.cs_kaspi.catalog.apply_model_specs import run as apply_model_specs
+from scripts.cs_kaspi.catalog.build_master_catalog import run as build_master_catalog, build_summary
+from scripts.cs_kaspi.markets.merge_market_data import run as merge_market_data
+from scripts.cs_kaspi.kaspi_policy.build_kaspi_offer import run as build_kaspi_offer
+from scripts.cs_kaspi.kaspi_policy.build_kaspi_status import run as build_kaspi_status
+
+
+def _build_changes_block(product: dict) -> dict:
+    official = product.get("official", {})
+    market = product.get("market", {})
+    kaspi = product.get("kaspi_policy", {})
+
+    return {
+        "last_checked_at": official.get("checked_at"),
+        "last_changed_at": official.get("checked_at"),
+        "official_hash": official.get("source_hash"),
+        "market_hash": (market.get("ozon") or {}).get("source_hash") or (market.get("wb") or {}).get("source_hash"),
+        "kaspi_hash": kaspi.get("offer_hash"),
+        "changed_official": False,
+        "changed_market": False,
+        "changed_kaspi": False,
+    }
+
+
+def _build_meta_block(product: dict) -> dict:
+    checked_at = (product.get("official") or {}).get("checked_at")
+    return {
+        "created_at": checked_at,
+        "updated_at": checked_at,
+        "notes": "",
+    }
+
 
 def run() -> dict:
     ensure_base_dirs()
-    demo_product={
-        "product_key":"demiand_air_fryer_sanders_max_black",
-        "supplier_key":"demiand",
-        "brand":"DEMIAND",
-        "category_key":"air_fryers",
-        "model_key":"sanders_max",
-        "variant_key":"black",
-        "official":{"exists":True,"status":"active","product_id":"demiand_sanders_max_black","url":"https://demiand.ru/product/example/","title":"Аэрогриль DEMIAND Sanders Max черный","description":"Официальное описание товара","images":["https://example.com/image.jpg"],"specs":{"volume_l":6,"programs":12,"wifi":True},"package":{"recipe_book":True},"checked_at":None,"source_hash":None},
-        "model_specs": read_yaml(ROOT / "config" / "model_specs" / "demiand_air_fryers.yml"),
-    }
-    products=merge_market([demo_product])
-    for p in products:
-        p["kaspi_policy"]=build_offer(p)
-        p["status"]=build_status(p)
-        p["changes"]={"last_checked_at":None,"last_changed_at":None,"official_hash":None,"market_hash":None,"kaspi_hash":None,"changed_official":False,"changed_market":False,"changed_kaspi":False}
-        p["kaspi_match"]={"exists_in_kaspi":False,"match_status":"not_matched","kaspi_product_id":None,"match_confidence":"none"}
-        p["meta"]={"created_at":None,"updated_at":None,"notes":""}
-    catalog=build_master(products,["demiand"],["air_fryers"])
-    write_json(get_path("artifacts_state_dir") / "master_catalog.json", catalog)
-    summary={"built_at":catalog["meta"]["built_at"],"total_products":len(catalog["products"]),"suppliers":{"demiand":len(catalog["products"])},"categories":{"air_fryers":len(catalog["products"])},"lifecycle_status":{"catalog_only":sum(1 for p in catalog["products"] if p["status"]["lifecycle_status"]=="catalog_only"),"market_active":0,"kaspi_ready":sum(1 for p in catalog["products"] if p["status"]["lifecycle_status"]=="kaspi_ready"),"kaspi_active":0,"kaspi_paused":0,"needs_review":0,"blocked":0}}
-    write_json(get_path("artifacts_state_dir") / "master_catalog_summary.json", summary)
+
+    state_dir = get_path("artifacts_state_dir")
+    official_products_payload = read_json(state_dir / "demiand_official_products.json", default={"products": []})
+    official_products = official_products_payload.get("products", [])
+
+    merged_products = merge_official_products([official_products])
+    products_with_model_specs = apply_model_specs(merged_products, model_specs=None)
+    products_with_market = merge_market_data(products_with_model_specs)
+
+    final_products: list[dict] = []
+    for product in products_with_market:
+        row = dict(product)
+        row["kaspi_policy"] = build_kaspi_offer(row)
+        row["status"] = build_kaspi_status(row)
+        row["changes"] = _build_changes_block(row)
+        row["kaspi_match"] = {
+            "exists_in_kaspi": False,
+            "match_status": "not_matched",
+            "kaspi_product_id": None,
+            "match_confidence": "none",
+        }
+        row["meta"] = _build_meta_block(row)
+        final_products.append(row)
+
+    suppliers = sorted({p.get("supplier_key") for p in final_products if p.get("supplier_key")})
+    categories = sorted({p.get("category_key") for p in final_products if p.get("category_key")})
+
+    catalog = build_master_catalog(final_products, suppliers, categories)
+    write_json(state_dir / "master_catalog.json", catalog)
+
+    summary = build_summary(catalog)
+    write_json(state_dir / "master_catalog_summary.json", summary)
+
     return catalog
+
 
 if __name__ == "__main__":
     run()
