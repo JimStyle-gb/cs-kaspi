@@ -21,6 +21,13 @@ def run(products: list[dict[str, Any]]) -> dict[str, Any]:
             problems.append({"level": "critical", "product_key": key, "message": "missing product_key"})
         elif any(ord(ch) > 127 for ch in key):
             problems.append({"level": "critical", "product_key": key, "message": "non-ascii product_key"})
+        elif len(str(key)) > 120:
+            problems.append({"level": "critical", "product_key": key, "message": "too long product_key"})
+        model_key = product.get("model_key")
+        if model_key and any(ord(ch) > 127 for ch in str(model_key)):
+            problems.append({"level": "cosmetic", "product_key": key, "message": "non-ascii model_key"})
+        if model_key and len(str(model_key)) > 80:
+            problems.append({"level": "cosmetic", "product_key": key, "message": "too long model_key"})
         if category_key not in categories_cfg:
             problems.append({"level": "critical", "product_key": key, "message": f"missing category config: {category_key}"})
         if not official.get("title_official"):
