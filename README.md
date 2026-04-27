@@ -164,3 +164,42 @@ artifacts/state/<supplier_key>_official_products.json
 ```
 
 Дальше общий master catalog подхватит его сам.
+
+
+## Kaspi match layer
+
+Kaspi match layer is used only to compare the master catalog with products that already exist in the Kaspi seller cabinet. It does not send anything to the Kaspi API.
+
+Input folder:
+
+```text
+input/kaspi/existing/
+```
+
+Supported input formats:
+
+```text
+.csv
+.json
+.yml
+.yaml
+```
+
+The safest matching fields are:
+
+```text
+product_key
+kaspi_sku
+kaspi_product_id
+```
+
+After `Build_All`, check:
+
+```text
+artifacts/state/kaspi_match_state.json
+artifacts/reports/kaspi_match_report.txt
+artifacts/reports/kaspi_unmatched_existing_records.json
+artifacts/kaspi_match_templates/kaspi_existing_template.csv
+```
+
+If an existing Kaspi product is matched, it goes to `kaspi_update_candidates.json`. If it is not matched and is sellable, it stays in `kaspi_create_candidates.json`. If it is matched but no longer sellable, it goes to `kaspi_pause_candidates.json`.
