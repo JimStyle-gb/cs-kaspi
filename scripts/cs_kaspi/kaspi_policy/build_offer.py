@@ -32,6 +32,9 @@ def run(product: dict) -> dict:
             "kaspi_images": images,
             "kaspi_description": description,
             "kaspi_attributes": attributes,
+            "price_source": "market_policy" if price else None,
+            "market_price": product.get("market", {}).get("market_price"),
+            "market_price_source": product.get("market", {}).get("market_price_source"),
         },
         "status": status,
     }
