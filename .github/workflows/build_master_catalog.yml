@@ -1,4 +1,4 @@
-name: Build_Preview
+name: Build_Master_Catalog
 
 on:
   workflow_dispatch:
@@ -14,11 +14,11 @@ jobs:
       - name: Install deps
         run: pip install -r requirements.txt
       - name: Run command
-        run: python -m scripts.cs_kaspi.commands.build_preview
+        run: python -m scripts.cs_kaspi.commands.build_master_catalog
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: build_preview_artifacts
+          name: build_master_catalog_artifacts
           path: artifacts
           if-no-files-found: warn

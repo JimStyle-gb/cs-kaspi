@@ -1,7 +1,9 @@
-name: Build_Preview
+name: Build_All
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: '0 21 * * *'  # 02:00 Asia/Almaty
 
 jobs:
   run:
@@ -13,12 +15,12 @@ jobs:
           python-version: '3.11'
       - name: Install deps
         run: pip install -r requirements.txt
-      - name: Run command
-        run: python -m scripts.cs_kaspi.commands.build_preview
+      - name: Run full CS-Kaspi pipeline
+        run: python -m scripts.cs_kaspi.commands.build_all
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: build_preview_artifacts
+          name: build_all_artifacts
           path: artifacts
           if-no-files-found: warn
