@@ -4,10 +4,12 @@ import json
 import re
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse, unquote
+from urllib.parse import urlparse
 
 import requests
 from bs4 import BeautifulSoup
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 from scripts.cs_kaspi.core.read_yaml import read_yaml
 from scripts.cs_kaspi.core.file_paths import ROOT
@@ -20,13 +22,32 @@ HEADERS = {
     "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
 }
 
-CATEGORY_SINGULAR = {
-    "air_fryers": "air_fryer",
-    "air_fryer_accessories": "air_fryer_accessory",
-    "blenders": "blender",
-    "coffee_makers": "coffee_maker",
-    "ovens": "oven",
-}
+_SESSION: requests.Session | None = None
+
+
+def _build_session() -> requests.Session:
+    session = requests.Session()
+    retry = Retry(
+        total=3,
+        connect=3,
+        read=3,
+        backoff_factor=1.5,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=("GET",),
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retry, pool_connections=20, pool_maxsize=20)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    session.headers.update(HEADERS)
+    return session
+
+
+def get_session() -> requests.Session:
+    global _SESSION
+    if _SESSION is None:
+        _SESSION = _build_session()
+    return _SESSION
 
 
 def get_supplier_config() -> dict[str, Any]:
@@ -37,10 +58,10 @@ def get_model_specs() -> dict[str, Any]:
     return read_yaml(MODEL_SPECS_PATH)
 
 
-def fetch_html(url: str, timeout: int = 30) -> str:
-    response = requests.get(url, headers=HEADERS, timeout=timeout)
+def fetch_html(url: str, timeout: int = 60) -> str:
+    response = get_session().get(url, timeout=(20, timeout))
     response.raise_for_status()
-    response.encoding = response.encoding or "utf-8"
+    response.encoding = response.encoding or response.apparent_encoding or "utf-8"
     return response.text
 
 
@@ -50,8 +71,7 @@ def save_text(path: Path, text: str) -> None:
 
 
 def slug_from_url(url: str) -> str:
-    raw = Path(urlparse(url).path.strip("/")).name
-    return unquote(raw)
+    return Path(urlparse(url).path.strip("/")).name
 
 
 def normalize_text(value: str | None) -> str:
@@ -65,49 +85,8 @@ def parse_price_to_number(raw: str | None) -> int | None:
     return int(digits) if digits else None
 
 
-def slugify_key(text: str | None) -> str:
-    text = unquote(text or "").lower().replace("ё", "е")
-    text = text.replace("wifi", " wifi ")
-    text = re.sub(r"[^a-zа-я0-9]+", "_", text, flags=re.IGNORECASE)
-    text = re.sub(r"_+", "_", text).strip("_")
-    return text
-
-
-def article_slug(article: str | None) -> str | None:
-    if not article:
-        return None
-    return slugify_key(article.replace("/", " ")) or None
-
-
-def build_product_key(
-    category_key: str,
-    slug_or_name: str,
-    model_key: str | None = None,
-    variant_key: str | None = None,
-    article: str | None = None,
-) -> str:
-    category_part = CATEGORY_SINGULAR.get(category_key, category_key.rstrip("s"))
-    article_part = article_slug(article)
-    base_slug = slugify_key(model_key or slug_or_name)
-    variant_slug = slugify_key(variant_key) if variant_key else None
-
-    pieces = ["demiand", category_part]
-
-    if category_key == "air_fryer_accessories":
-        # Для аксессуаров ключ должен строиться от самого товара/артикула,
-        # а не от совместимой модели (Tison/Waison), иначе разные аксессуары сливаются.
-        if article_part:
-            pieces.append(article_part)
-        else:
-            pieces.append(base_slug)
-        return "_".join([p for p in pieces if p])
-
-    pieces.append(base_slug or article_part or slugify_key(slug_or_name))
-    if variant_slug and variant_slug not in pieces[-1]:
-        pieces.append(variant_slug)
-    elif article_part and article_part not in pieces[-1]:
-        pieces.append(article_part)
-    return "_".join([p for p in pieces if p])
+def build_product_key(category_key: str, slug: str) -> str:
+    return f"demiand_{category_key.rstrip('s')}_{slug.replace('-', '_')}"
 
 
 def make_soup(html_text: str) -> BeautifulSoup:
