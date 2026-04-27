@@ -1,11 +1,11 @@
-# CS-Kaspi v2 clean
+# CS-Kaspi
 
 Чистая рабочая основа проекта **CS-Kaspi**.
 
 ## Главная логика
 
 ```text
-official supplier source -> official_state -> master_catalog -> kaspi_policy -> preview/check -> позже market/export
+official supplier source -> official_state -> market_state -> master_catalog -> kaspi_policy -> preview/check -> позже export
 ```
 
 Правила проекта:
@@ -30,8 +30,6 @@ requirements.txt
 README.md
 ```
 
-Старые папки `__pycache__`, `supplier_2`, старые пустые `export_*`, `match_kaspi`, `refresh_market_data` лучше удалить — в этой v2-базе их специально нет, чтобы не было ложного ощущения готовности.
-
 ## Главный запуск
 
 В GitHub Actions запускай:
@@ -40,27 +38,51 @@ README.md
 Build_All
 ```
 
-Он делает всё в одном job, чтобы `Build_Master_Catalog` видел state-файлы, созданные `Refresh_Official_Sources`:
+Он делает всё в одном job, чтобы `Build_Master_Catalog` видел state-файлы, созданные предыдущими шагами:
 
 ```text
 1. refresh official sources
-2. build master catalog
-3. build preview
-4. check project
-5. upload artifacts
+2. refresh market data from input/market
+3. build master catalog
+4. build preview
+5. check project
+6. upload artifacts
 ```
 
 ## Отдельные команды
 
 ```bash
 python -m scripts.cs_kaspi.commands.refresh_official_sources
+python -m scripts.cs_kaspi.commands.refresh_market_data
 python -m scripts.cs_kaspi.commands.build_master_catalog
 python -m scripts.cs_kaspi.commands.build_preview
 python -m scripts.cs_kaspi.commands.check_project
 python -m scripts.cs_kaspi.commands.build_all
 ```
 
-Важно: отдельный `build_master_catalog` теперь **не собирает пустой master молча**. Если official state отсутствует, он падает с понятной ошибкой.
+Важно: отдельный `build_master_catalog` не собирает пустой master молча. Если official state отсутствует, он падает с понятной ошибкой.
+
+## Рыночный слой market-layer v1
+
+Market-layer v1 не парсит Ozon/WB live-страницы. Он читает подготовленные файлы из `input/market/` и использует их только как рыночный слой:
+
+```text
+цена -> наличие -> остаток -> срок -> sellable/not sellable
+```
+
+Технические характеристики и описание по-прежнему берутся из official supplier layer.
+
+Поддерживаемые входные форматы:
+
+```text
+input/market/ozon/*.json|*.yml|*.yaml|*.csv
+input/market/wb/*.json|*.yml|*.yaml|*.csv
+input/market/manual/*.json|*.yml|*.yaml|*.csv
+```
+
+Если рыночных файлов нет, сборка не падает: товары остаются в статусе `catalog_only / wait_market_data`.
+
+Если рыночная запись найдена и товар доступен, `kaspi_policy` строит цену через `config/kaspi.yml -> price_policy`, а не копирует цену маркетплейса напрямую.
 
 ## Выходные файлы
 
@@ -70,12 +92,15 @@ python -m scripts.cs_kaspi.commands.build_all
 artifacts/state/demiand_product_index.json
 artifacts/state/demiand_official_products.json
 artifacts/state/official_state.json
+artifacts/state/market_state.json
 artifacts/state/master_catalog.json
 artifacts/state/master_catalog_summary.json
 artifacts/preview/kaspi_preview.json
 artifacts/preview/kaspi_preview.yml
 artifacts/preview/kaspi_preview.xml
 artifacts/preview/kaspi_preview.txt
+artifacts/reports/market_report.txt
+artifacts/reports/market_unmatched_records.json
 artifacts/reports/check_project_report.json
 artifacts/reports/check_project_report.txt
 ```
