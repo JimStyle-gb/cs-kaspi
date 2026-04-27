@@ -1,14 +1,23 @@
 # Manual market input
 
-Файл `demiand_manual_market.csv` — первый ручной рыночный input для проверки полного пути CS-Kaspi:
-
-```text
-market input → market_state → master_catalog → kaspi_policy → preview
-```
+Эта папка предназначена для ручных или подготовленных рыночных файлов.
 
 Важно:
 
-- `product_key` не менять.
-- `price` сейчас заполнен текущей ценой с official Demiand как временный тестовый market-input.
-- Это не финальный Ozon/WB слой. После подключения Ozon/WB эти данные можно заменить или дополнить.
-- `available=true`, `stock=3`, `lead_time_days=20` выставлены для проверки, что товары переходят в `ready_for_create_or_update`.
+- Активный тестовый файл `demiand_manual_market.csv` сейчас оставлен только с заголовком.
+- Боевые цены/наличие нельзя держать в тестовом файле, если они не подтверждены реальным рынком.
+- Для настоящей работы создай отдельный файл, например:
+  - `demiand_ozon_market.csv`
+  - `demiand_wb_market.csv`
+  - `demiand_manual_real_market.csv`
+- `product_key` менять нельзя.
+- Для продаваемого товара обязательно заполнять:
+  - `source`
+  - `product_key`
+  - `url`
+  - `price`
+  - `available`
+  - `stock`
+  - `lead_time_days`
+
+Текущий `demiand_manual_market.csv` — безопасная пустая заготовка, чтобы случайно не считать все 85 товаров готовыми к Kaspi по тестовым данным.
