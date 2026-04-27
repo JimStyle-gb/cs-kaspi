@@ -70,18 +70,43 @@ def slugify_key(text: str | None) -> str:
     text = text.replace("wifi", " wifi ")
     text = re.sub(r"[^a-zа-я0-9]+", "_", text, flags=re.IGNORECASE)
     text = re.sub(r"_+", "_", text).strip("_")
-    # keep ascii-ish, but allow roman model/article fragments already present
     return text
 
 
-def build_product_key(category_key: str, slug_or_name: str, model_key: str | None = None, variant_key: str | None = None, article: str | None = None) -> str:
-    base = model_key or article or slug_or_name
-    base_slug = slugify_key(base)
-    variant_slug = slugify_key(variant_key) if variant_key else None
+def article_slug(article: str | None) -> str | None:
+    if not article:
+        return None
+    return slugify_key(article.replace("/", " ")) or None
+
+
+def build_product_key(
+    category_key: str,
+    slug_or_name: str,
+    model_key: str | None = None,
+    variant_key: str | None = None,
+    article: str | None = None,
+) -> str:
     category_part = CATEGORY_SINGULAR.get(category_key, category_key.rstrip("s"))
-    pieces = ["demiand", category_part, base_slug]
-    if variant_slug and variant_slug not in base_slug:
+    article_part = article_slug(article)
+    base_slug = slugify_key(model_key or slug_or_name)
+    variant_slug = slugify_key(variant_key) if variant_key else None
+
+    pieces = ["demiand", category_part]
+
+    if category_key == "air_fryer_accessories":
+        # Для аксессуаров ключ должен строиться от самого товара/артикула,
+        # а не от совместимой модели (Tison/Waison), иначе разные аксессуары сливаются.
+        if article_part:
+            pieces.append(article_part)
+        else:
+            pieces.append(base_slug)
+        return "_".join([p for p in pieces if p])
+
+    pieces.append(base_slug or article_part or slugify_key(slug_or_name))
+    if variant_slug and variant_slug not in pieces[-1]:
         pieces.append(variant_slug)
+    elif article_part and article_part not in pieces[-1]:
+        pieces.append(article_part)
     return "_".join([p for p in pieces if p])
 
 
