@@ -18,10 +18,17 @@ def _txt_report(report: dict[str, Any]) -> str:
         f"missing_model_specs: {report.get('missing_model_specs')}",
         f"missing_price: {report.get('missing_price')}",
         f"wait_market_data: {report.get('wait_market_data')}",
+        f"with_market_data: {report.get('with_market_data')}",
+        f"market_sellable: {report.get('market_sellable')}",
+        f"ready_for_kaspi: {report.get('ready_for_kaspi')}",
         "",
         "categories:",
     ]
     for key, value in report.get("categories", {}).items():
+        lines.append(f"  {key}: {value}")
+    lines.append("")
+    lines.append("market_sources:")
+    for key, value in report.get("market_sources", {}).items():
         lines.append(f"  {key}: {value}")
     lines.append("")
     lines.append("problems:")
@@ -60,9 +67,13 @@ def run() -> dict[str, Any]:
         "cosmetic_count": sum(1 for p in problems if p.get("level") == "cosmetic"),
         "categories": dict(Counter(p.get("category_key") for p in products)),
         "suppliers": dict(Counter(p.get("supplier_key") for p in products)),
+        "market_sources": dict(Counter(p.get("market", {}).get("market_price_source") for p in products if p.get("market", {}).get("market_price_source"))),
         "missing_model_specs": sum(1 for p in products if not p.get("model_specs", {}).get("exists")),
         "missing_price": sum(1 for p in products if p.get("kaspi_policy", {}).get("kaspi_price") is None),
         "wait_market_data": sum(1 for p in products if p.get("status", {}).get("action_status") == "wait_market_data"),
+        "with_market_data": sum(1 for p in products if p.get("market", {}).get("sources")),
+        "market_sellable": sum(1 for p in products if p.get("market", {}).get("sellable") is True),
+        "ready_for_kaspi": sum(1 for p in products if p.get("status", {}).get("action_status") == "ready_for_create_or_update"),
         "problems": problems,
     }
     write_json(reports_dir / "check_project_report.json", report)
