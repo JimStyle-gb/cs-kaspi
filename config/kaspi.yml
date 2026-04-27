@@ -8,6 +8,10 @@ defaults:
   title_prefix: VAITAN
 
 price_policy:
-  source: market_layer_later
+  source: market_layer
   allow_official_price_as_final: false
   fallback_price: null
+  markup_percent: 18
+  fixed_add_kzt: 0
+  min_margin_kzt: 1500
+  round_to_kzt: 100
