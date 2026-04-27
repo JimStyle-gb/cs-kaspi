@@ -4,6 +4,7 @@ from typing import Any
 
 from scripts.cs_kaspi.commands.refresh_official_sources import run as refresh_official_sources
 from scripts.cs_kaspi.commands.refresh_market_data import run as refresh_market_data
+from scripts.cs_kaspi.commands.validate_market_inputs import run as validate_market_inputs
 from scripts.cs_kaspi.commands.refresh_kaspi_matches import run as refresh_kaspi_matches
 from scripts.cs_kaspi.commands.build_master_catalog import run as build_master_catalog
 from scripts.cs_kaspi.commands.build_market_template import run as build_market_template
@@ -18,6 +19,7 @@ def run() -> dict[str, Any]:
     result: dict[str, Any] = {"started_at": now_iso()}
     result["official"] = refresh_official_sources()
     result["market"] = refresh_market_data()
+    result["market_input_validation"] = validate_market_inputs()
     result["kaspi_matches"] = refresh_kaspi_matches()
     result["master_summary"] = build_master_catalog()
     result["market_template"] = build_market_template()
