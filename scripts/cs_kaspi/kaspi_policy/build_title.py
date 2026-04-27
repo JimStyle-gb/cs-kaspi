@@ -7,6 +7,9 @@ COLOR_RU = {
     "white": "белый",
     "metal": "металлик",
     "beige": "бежевый",
+    "ash": "пепельный",
+    "caramel": "карамель",
+    "chocolate": "шоколадный",
 }
 
 CATEGORY_TITLE_RU = {
