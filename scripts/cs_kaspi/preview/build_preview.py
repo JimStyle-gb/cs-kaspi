@@ -7,6 +7,7 @@ from scripts.cs_kaspi.core.time_utils import now_iso
 
 def _item(product: dict[str, Any]) -> dict[str, Any]:
     official = product.get("official", {}) or {}
+    market = product.get("market", {}) or {}
     kaspi = product.get("kaspi_policy", {}) or {}
     status = product.get("status", {}) or {}
     attrs = kaspi.get("kaspi_attributes", {}) or {}
@@ -25,11 +26,20 @@ def _item(product: dict[str, Any]) -> dict[str, Any]:
         "official_price": official.get("price"),
         "official_old_price": official.get("old_price"),
         "official_available": official.get("available"),
+        "market_sellable": market.get("sellable"),
+        "market_sellable_reason": market.get("sellable_reason"),
+        "market_price": market.get("market_price"),
+        "market_price_source": market.get("market_price_source"),
+        "market_url": market.get("market_url"),
+        "market_stock": market.get("stock"),
+        "market_lead_time_days": market.get("lead_time_days"),
+        "market_sources_count": len(market.get("sources", {}) or {}),
         "kaspi_title": kaspi.get("kaspi_title"),
         "kaspi_price": kaspi.get("kaspi_price"),
         "kaspi_stock": kaspi.get("kaspi_stock"),
         "lead_time_days": kaspi.get("lead_time_days"),
         "kaspi_available": kaspi.get("kaspi_available"),
+        "price_source": kaspi.get("price_source"),
         "images_count": len(images),
         "first_image": images[0] if images else None,
         "attributes_count": len(attrs),
