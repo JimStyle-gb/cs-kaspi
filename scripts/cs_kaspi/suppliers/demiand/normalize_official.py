@@ -93,12 +93,25 @@ def _guess_model_from_title(title: str) -> str | None:
     return None
 
 
+def _color_from_identity(title: str, article: str | None, specs_raw: dict[str, Any]) -> str | None:
+    """
+    Цвет для variant/model identity берём сначала из артикула и названия.
+
+    На official-сайте Demiand у некоторых товаров встречается конфликт:
+    в артикуле/названии указан один цвет, а в таблице характеристик — другой.
+    Для стабильного product_key важнее артикул и название, потому что именно они
+    отличают отдельные карточки товара.
+    """
+    identity_text = f"{article or ''} {title or ''}"
+    return _normalize_color(identity_text) or _normalize_color(specs_raw.get("Цвет"))
+
+
 def _guess_variant(title: str, article: str | None, specs_raw: dict[str, Any]) -> str | None:
     parts: list[str] = []
     text = f"{title} {article or ''} {specs_raw.get('Цвет', '')}".lower()
     if "wifi" in text or "wi-fi" in text:
         parts.append("wifi")
-    color = _normalize_color(specs_raw.get("Цвет") or title or article)
+    color = _color_from_identity(title, article, specs_raw)
     if color:
         parts.append(color)
     return "_".join(parts) if parts else None
@@ -167,7 +180,7 @@ def run(parsed_products_payload: dict[str, Any]) -> dict[str, Any]:
             "power_w": _number(specs_raw.get("Мощность")),
             "volume_l": _number(specs_raw.get("Объем камеры") or specs_raw.get("Объём") or specs_raw.get("Объем")),
             "programs": int(_number(specs_raw.get("Количество программ")) or 0) or None,
-            "color": _normalize_color(specs_raw.get("Цвет") or title or article),
+            "color": _color_from_identity(title, article, specs_raw),
             "control_type": specs_raw.get("Управление"),
             "temperature_range_text": specs_raw.get("Температура"),
             "timer_range_text": specs_raw.get("Время"),
