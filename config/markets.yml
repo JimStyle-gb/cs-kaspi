@@ -1,7 +1,34 @@
 markets:
   ozon:
-    enabled: false
+    enabled: true
     role: price_availability_presence_only
+    input_mode: file
   wb:
-    enabled: false
+    enabled: true
     role: price_availability_presence_only
+    input_mode: file
+  manual:
+    enabled: true
+    role: price_availability_presence_only
+    input_mode: file
+
+input:
+  directory: input/market
+  supported_formats:
+    - json
+    - yml
+    - yaml
+    - csv
+  ignored_filename_parts:
+    - example
+    - sample
+    - readme
+
+matching:
+  order:
+    - product_key
+    - supplier_article
+    - article
+    - supplier_model_variant
+    - model_variant
+    - title
