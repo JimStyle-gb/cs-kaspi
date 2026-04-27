@@ -44,9 +44,10 @@ Build_All
 1. refresh official sources
 2. refresh market data from input/market
 3. build master catalog
-4. build preview
-5. check project
-6. upload artifacts
+4. build market input template
+5. build preview
+6. check project
+7. upload artifacts
 ```
 
 ## Отдельные команды
@@ -55,6 +56,7 @@ Build_All
 python -m scripts.cs_kaspi.commands.refresh_official_sources
 python -m scripts.cs_kaspi.commands.refresh_market_data
 python -m scripts.cs_kaspi.commands.build_master_catalog
+python -m scripts.cs_kaspi.commands.build_market_template
 python -m scripts.cs_kaspi.commands.build_preview
 python -m scripts.cs_kaspi.commands.check_project
 python -m scripts.cs_kaspi.commands.build_all
@@ -84,6 +86,35 @@ input/market/manual/*.json|*.yml|*.yaml|*.csv
 
 Если рыночная запись найдена и товар доступен, `kaspi_policy` строит цену через `config/kaspi.yml -> price_policy`, а не копирует цену маркетплейса напрямую.
 
+## Шаблон первого market input
+
+После `Build_All` автоматически создаётся папка:
+
+```text
+artifacts/market_templates/
+```
+
+В ней будут:
+
+```text
+manual_market_template.csv
+manual_market_template.json
+README.txt
+```
+
+Это безопасный шаблон на базе текущего `master_catalog.json`. Он нужен, чтобы сделать первый реальный market input без ошибок в `product_key`.
+
+Рабочая схема:
+
+```text
+1. скачать artifacts/market_templates/manual_market_template.csv
+2. заполнить price / available / stock / lead_time_days / url
+3. положить готовый файл в input/market/manual/demiand_manual_market.csv
+4. запустить Build_All
+```
+
+Колонки с `_` в начале — справочные. `product_key` менять нельзя.
+
 ## Выходные файлы
 
 После `Build_All` должны появиться:
@@ -95,6 +126,9 @@ artifacts/state/official_state.json
 artifacts/state/market_state.json
 artifacts/state/master_catalog.json
 artifacts/state/master_catalog_summary.json
+artifacts/market_templates/manual_market_template.csv
+artifacts/market_templates/manual_market_template.json
+artifacts/market_templates/README.txt
 artifacts/preview/kaspi_preview.json
 artifacts/preview/kaspi_preview.yml
 artifacts/preview/kaspi_preview.xml
