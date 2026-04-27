@@ -24,6 +24,8 @@ HEADERS = {
     "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
 }
 
+MAX_PRODUCT_KEY_LEN = 96
+
 CATEGORY_SINGULAR = {
     "air_fryer_accessories": "air_fryer_accessory",
     "air_fryers": "air_fryer",
@@ -124,6 +126,15 @@ def article_slug(article: str | None) -> str | None:
     return slug or None
 
 
+def compact_product_key(value: str, max_len: int = MAX_PRODUCT_KEY_LEN) -> str:
+    value = re.sub(r"_+", "_", value).strip("_")
+    if len(value) <= max_len:
+        return value
+    suffix = stable_hash(value)[:10]
+    prefix = value[: max_len - len(suffix) - 1].rstrip("_")
+    return f"{prefix}_{suffix}"
+
+
 def build_product_key(category_key: str, slug_or_name: str | None, model_key: str | None = None, variant_key: str | None = None, article: str | None = None) -> str:
     category_part = CATEGORY_SINGULAR.get(category_key, slugify_ascii(category_key))
     base = slugify_ascii(model_key or slug_or_name or article or "product")
@@ -138,8 +149,12 @@ def build_product_key(category_key: str, slug_or_name: str | None, model_key: st
         if variant_part and variant_part not in pieces[-1]:
             pieces.append(variant_part)
         elif article_part and article_part not in pieces[-1]:
-            pieces.append(article_part)
-    return "_".join(p for p in pieces if p)
+            article_extra = article_part
+            if article_extra.startswith(f"{pieces[-1]}_"):
+                article_extra = article_extra[len(pieces[-1]) + 1 :]
+            if article_extra:
+                pieces.append(article_extra)
+    return compact_product_key("_".join(p for p in pieces if p))
 
 
 def extract_json_ld(soup: BeautifulSoup) -> list[dict[str, Any]]:
