@@ -9,6 +9,7 @@ paths:
   artifacts_preview_dir: artifacts/preview
   artifacts_reports_dir: artifacts/reports
   artifacts_exports_dir: artifacts/exports
+  artifacts_market_templates_dir: artifacts/market_templates
 
 runtime:
   write_pretty_json: true
