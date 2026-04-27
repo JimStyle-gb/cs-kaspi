@@ -32,7 +32,12 @@ def limit_text(value: str, max_len: int) -> str:
     value = normalize_spaces(value)
     if len(value) <= max_len:
         return value
-    return value[: max_len - 1].rstrip() + "…"
+    cut = value[:max_len].rstrip()
+    if " " in cut:
+        word_cut = cut.rsplit(" ", 1)[0].rstrip()
+        if word_cut:
+            return word_cut
+    return cut
 
 
 def clean_html_text(value: str | None) -> str:
