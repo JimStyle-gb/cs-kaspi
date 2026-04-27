@@ -4,7 +4,7 @@ import json
 import re
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, unquote
 
 import requests
 from bs4 import BeautifulSoup
@@ -20,6 +20,14 @@ MODEL_SPECS_PATH = ROOT / "config" / "model_specs" / "demiand_air_fryers.yml"
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0 Safari/537.36",
     "Accept-Language": "ru-RU,ru;q=0.9,en;q=0.8",
+}
+
+CATEGORY_SINGULAR = {
+    "air_fryers": "air_fryer",
+    "air_fryer_accessories": "air_fryer_accessory",
+    "blenders": "blender",
+    "coffee_makers": "coffee_maker",
+    "ovens": "oven",
 }
 
 _SESSION: requests.Session | None = None
@@ -71,7 +79,8 @@ def save_text(path: Path, text: str) -> None:
 
 
 def slug_from_url(url: str) -> str:
-    return Path(urlparse(url).path.strip("/")).name
+    raw = Path(urlparse(url).path.strip("/")).name
+    return unquote(raw)
 
 
 def normalize_text(value: str | None) -> str:
@@ -85,8 +94,47 @@ def parse_price_to_number(raw: str | None) -> int | None:
     return int(digits) if digits else None
 
 
-def build_product_key(category_key: str, slug: str) -> str:
-    return f"demiand_{category_key.rstrip('s')}_{slug.replace('-', '_')}"
+def slugify_key(text: str | None) -> str:
+    text = unquote(text or "").lower().replace("ё", "е")
+    text = text.replace("wifi", " wifi ")
+    text = re.sub(r"[^a-zа-я0-9]+", "_", text, flags=re.IGNORECASE)
+    text = re.sub(r"_+", "_", text).strip("_")
+    return text
+
+
+def article_slug(article: str | None) -> str | None:
+    if not article:
+        return None
+    return slugify_key(article.replace("/", " ")) or None
+
+
+def build_product_key(
+    category_key: str,
+    slug_or_name: str,
+    model_key: str | None = None,
+    variant_key: str | None = None,
+    article: str | None = None,
+) -> str:
+    category_part = CATEGORY_SINGULAR.get(category_key, category_key.rstrip("s"))
+    article_part = article_slug(article)
+    base_slug = slugify_key(model_key or slug_or_name)
+    variant_slug = slugify_key(variant_key) if variant_key else None
+
+    pieces = ["demiand", category_part]
+
+    if category_key == "air_fryer_accessories":
+        if article_part:
+            pieces.append(article_part)
+        else:
+            pieces.append(base_slug or slugify_key(slug_or_name))
+        return "_".join([p for p in pieces if p])
+
+    pieces.append(base_slug or article_part or slugify_key(slug_or_name))
+    if variant_slug and variant_slug not in pieces[-1]:
+        pieces.append(variant_slug)
+    elif article_part and article_part not in pieces[-1]:
+        pieces.append(article_part)
+    return "_".join([p for p in pieces if p])
 
 
 def make_soup(html_text: str) -> BeautifulSoup:
