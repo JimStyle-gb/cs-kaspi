@@ -14,7 +14,7 @@
 
 - `input/market/ozon/products.json`
 - `input/market/wb/products.csv`
-- `input/market/manual/products.yml`
+- `input/market/manual/demiand_manual_market.csv`
 
 Минимальные поля записи:
 
@@ -39,5 +39,35 @@
 4. `supplier_key` + `model_key` + `variant_key`
 5. `model_key` + `variant_key`
 6. `title`
+
+## Шаблон для ручного market input
+
+После запуска `Build_All` проект создаёт шаблон:
+
+```text
+artifacts/market_templates/manual_market_template.csv
+artifacts/market_templates/manual_market_template.json
+artifacts/market_templates/README.txt
+```
+
+Для первого реального market input лучше взять CSV-шаблон, заполнить рыночные поля и положить готовый файл сюда:
+
+```text
+input/market/manual/demiand_manual_market.csv
+```
+
+Обязательные рабочие поля:
+
+```text
+product_key
+source
+url
+price
+available
+stock
+lead_time_days
+```
+
+`product_key` менять нельзя. Колонки с `_` в начале — справочные.
 
 Файлы с `example`, `sample`, `readme` в названии игнорируются загрузчиком, чтобы примеры случайно не попали в рабочий расчёт.
