@@ -1,13 +1,13 @@
 # Kaspi pause test input
 
-Этот файл добавлен только для проверки pause-логики.
+Тест pause-логики уже проверен и отключён.
 
-Активная строка имитирует товар, который уже есть в Kaspi, но сейчас НЕ имеет market-data.
-После Build_All ожидается:
+`demiand_existing_kaspi_pause_test.csv` оставлен только с заголовком, чтобы случайный тестовый товар `KSP-PAUSE-TEST-001` больше не считался реальным товаром Kaspi.
 
-- create_candidates = 3
-- update_candidates = 0
-- pause_candidates = 1
-- skipped = 81
+Для настоящей выгрузки существующих товаров Kaspi используйте отдельный файл в этой папке, например:
 
-После проверки этот тестовый файл нужно отключить отдельным патчем, чтобы KSP-PAUSE-TEST-001 не считался реальным товаром Kaspi.
+```text
+input/kaspi/existing/demiand_existing_kaspi_real.csv
+```
+
+Не добавляйте тестовые `KSP-TEST-*` или `KSP-PAUSE-TEST-*` в рабочие файлы.
