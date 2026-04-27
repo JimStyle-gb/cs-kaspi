@@ -8,11 +8,15 @@ artifacts/raw/*
 artifacts/preview/*
 artifacts/reports/*
 artifacts/exports/*
+artifacts/market_templates/*
+artifacts/kaspi_match_templates/*
 !artifacts/state/.gitkeep
 !artifacts/raw/.gitkeep
 !artifacts/preview/.gitkeep
 !artifacts/reports/.gitkeep
 !artifacts/exports/.gitkeep
+!artifacts/market_templates/.gitkeep
+!artifacts/kaspi_match_templates/.gitkeep
 input/official/*/catalog_pages/*.html
 input/official/*/product_pages/*.html
 input/official/*/manuals/*
