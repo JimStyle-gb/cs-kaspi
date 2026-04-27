@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections import Counter
 from typing import Any
 
+from scripts.cs_kaspi.core.hash_utils import stable_hash
 from scripts.cs_kaspi.core.time_utils import now_iso
 
 from scripts.cs_kaspi.kaspi_policy.build_offer import run as build_kaspi_offer
@@ -33,9 +34,26 @@ def run() -> dict[str, Any]:
 
     final_products: list[dict[str, Any]] = []
     for product in products:
+        product.setdefault("market", {
+            "sources": {},
+            "sellable": False,
+            "sellable_reason": "market_data_not_loaded",
+        })
+        product.setdefault("kaspi_match", {
+            "exists": False,
+            "kaspi_product_id": None,
+            "matched_by": None,
+            "confidence": None,
+        })
+
         kaspi_offer = build_kaspi_offer(product)
         product["kaspi_policy"] = kaspi_offer["kaspi_policy"]
         product["status"] = kaspi_offer["status"]
+        product["changes"] = {
+            "official_hash": stable_hash(product.get("official", {})),
+            "market_hash": stable_hash(product.get("market", {})),
+            "kaspi_policy_hash": stable_hash(product.get("kaspi_policy", {})),
+        }
         final_products.append(product)
 
     validation = validate_master_catalog(final_products)
