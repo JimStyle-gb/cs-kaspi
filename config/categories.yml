@@ -1,0 +1,21 @@
+categories:
+  air_fryer_accessories:
+    name_ru: Аксессуары для аэрогрилей
+    product_type_ru: аксессуар для аэрогриля
+    enabled: true
+  air_fryers:
+    name_ru: Аэрогрили
+    product_type_ru: аэрогриль
+    enabled: true
+  blenders:
+    name_ru: Блендеры
+    product_type_ru: блендер
+    enabled: true
+  coffee_makers:
+    name_ru: Кофеварки
+    product_type_ru: кофеварка
+    enabled: true
+  ovens:
+    name_ru: Печи
+    product_type_ru: печь
+    enabled: true

@@ -1,0 +1,17 @@
+project_name: CS-Kaspi
+timezone: Asia/Almaty
+
+paths:
+  input_official_dir: input/official
+  input_market_dir: input/market
+  artifacts_state_dir: artifacts/state
+  artifacts_raw_dir: artifacts/raw
+  artifacts_preview_dir: artifacts/preview
+  artifacts_reports_dir: artifacts/reports
+  artifacts_exports_dir: artifacts/exports
+
+runtime:
+  write_pretty_json: true
+  master_fail_if_supplier_state_missing: true
+  master_fail_if_total_products_zero: true
+  max_kaspi_images: 10

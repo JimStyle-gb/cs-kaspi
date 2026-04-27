@@ -1,0 +1,13 @@
+defaults:
+  currency: KZT
+  stock_when_market_missing: 0
+  lead_time_days_when_market_missing: 20
+  max_images: 10
+  title_max_length: 120
+  use_vaitan_in_title: true
+  title_prefix: VAITAN
+
+price_policy:
+  source: market_layer_later
+  allow_official_price_as_final: false
+  fallback_price: null

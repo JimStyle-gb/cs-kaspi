@@ -1,0 +1,7 @@
+markets:
+  ozon:
+    enabled: false
+    role: price_availability_presence_only
+  wb:
+    enabled: false
+    role: price_availability_presence_only
