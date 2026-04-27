@@ -21,6 +21,8 @@ def _txt_report(report: dict[str, Any]) -> str:
         f"with_market_data: {report.get('with_market_data')}",
         f"market_sellable: {report.get('market_sellable')}",
         f"ready_for_kaspi: {report.get('ready_for_kaspi')}",
+        f"kaspi_matched_products: {report.get('kaspi_matched_products')}",
+        f"kaspi_new_products: {report.get('kaspi_new_products')}",
         "",
         "categories:",
     ]
@@ -29,6 +31,10 @@ def _txt_report(report: dict[str, Any]) -> str:
     lines.append("")
     lines.append("market_sources:")
     for key, value in report.get("market_sources", {}).items():
+        lines.append(f"  {key}: {value}")
+    lines.append("")
+    lines.append("kaspi_match_methods:")
+    for key, value in report.get("kaspi_match_methods", {}).items():
         lines.append(f"  {key}: {value}")
     lines.append("")
     lines.append("problems:")
@@ -74,6 +80,9 @@ def run() -> dict[str, Any]:
         "with_market_data": sum(1 for p in products if p.get("market", {}).get("sources")),
         "market_sellable": sum(1 for p in products if p.get("market", {}).get("sellable") is True),
         "ready_for_kaspi": sum(1 for p in products if p.get("status", {}).get("action_status") == "ready_for_create_or_update"),
+        "kaspi_matched_products": sum(1 for p in products if p.get("kaspi_match", {}).get("exists") is True),
+        "kaspi_new_products": sum(1 for p in products if p.get("kaspi_match", {}).get("exists") is not True),
+        "kaspi_match_methods": dict(Counter(p.get("kaspi_match", {}).get("matched_by") for p in products if p.get("kaspi_match", {}).get("matched_by"))),
         "problems": problems,
     }
     write_json(reports_dir / "check_project_report.json", report)

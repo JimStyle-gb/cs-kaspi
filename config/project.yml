@@ -4,12 +4,14 @@ timezone: Asia/Almaty
 paths:
   input_official_dir: input/official
   input_market_dir: input/market
+  input_kaspi_existing_dir: input/kaspi/existing
   artifacts_state_dir: artifacts/state
   artifacts_raw_dir: artifacts/raw
   artifacts_preview_dir: artifacts/preview
   artifacts_reports_dir: artifacts/reports
   artifacts_exports_dir: artifacts/exports
   artifacts_market_templates_dir: artifacts/market_templates
+  artifacts_kaspi_match_templates_dir: artifacts/kaspi_match_templates
 
 runtime:
   write_pretty_json: true

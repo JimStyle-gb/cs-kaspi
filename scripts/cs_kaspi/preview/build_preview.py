@@ -10,6 +10,7 @@ def _item(product: dict[str, Any]) -> dict[str, Any]:
     market = product.get("market", {}) or {}
     kaspi = product.get("kaspi_policy", {}) or {}
     status = product.get("status", {}) or {}
+    match = product.get("kaspi_match", {}) or {}
     attrs = kaspi.get("kaspi_attributes", {}) or {}
     images = kaspi.get("kaspi_images", []) or []
     return {
@@ -40,6 +41,13 @@ def _item(product: dict[str, Any]) -> dict[str, Any]:
         "lead_time_days": kaspi.get("lead_time_days"),
         "kaspi_available": kaspi.get("kaspi_available"),
         "price_source": kaspi.get("price_source"),
+        "kaspi_match_exists": match.get("exists"),
+        "kaspi_product_id": match.get("kaspi_product_id"),
+        "kaspi_sku": match.get("kaspi_sku"),
+        "kaspi_existing_title": match.get("kaspi_title"),
+        "kaspi_existing_url": match.get("kaspi_url"),
+        "kaspi_matched_by": match.get("matched_by"),
+        "kaspi_match_confidence": match.get("confidence"),
         "images_count": len(images),
         "first_image": images[0] if images else None,
         "attributes_count": len(attrs),

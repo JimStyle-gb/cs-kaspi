@@ -1,4 +1,4 @@
-# CS-Kaspi
+# CS-Kaspi v2 clean
 
 Чистая рабочая основа проекта **CS-Kaspi**.
 
