@@ -1,11 +1,19 @@
-CS-Kaspi patch 09 — test Kaspi existing input
+CS-Kaspi Kaspi existing input — test file disabled
 
-Этот файл нужен только для проверки Kaspi-match layer.
+Этот файл намеренно оставлен только с заголовком, без тестовых товаров.
 
-Ожидаемый результат после Build_All:
-- kaspi_match_state.json: total_records = 3, matched_products = 3;
-- kaspi_create_candidates.json: 82 товара;
-- kaspi_update_candidates.json: 3 товара;
-- kaspi_pause_candidates.json: 0 товаров.
+Почему:
+- patch 09 уже проверил Kaspi-match на 3 тестовых товарах;
+- активные KSP-TEST записи нельзя оставлять в рабочем проекте;
+- иначе будущие draft exports будут считать 3 товара уже существующими в Kaspi, хотя это были fake/test записи.
 
-Важно: это НЕ настоящая выгрузка из Kaspi. Перед боевым режимом этот файл нужно заменить реальной выгрузкой текущих товаров Kaspi.
+Для реальной работы:
+1. Не заполняй этот test-файл.
+2. Создай отдельный рабочий файл рядом, например:
+   input/kaspi/existing/kaspi_existing_current.csv
+3. Заполняй его реальными товарами из Kaspi.
+4. Минимально полезные поля:
+   product_key, kaspi_sku, kaspi_product_id, kaspi_title, kaspi_url, kaspi_price, kaspi_stock, kaspi_available
+
+Если нужно снова проверить update-логику, можно временно добавить строки в этот файл,
+но после проверки снова очистить его до одного заголовка.
