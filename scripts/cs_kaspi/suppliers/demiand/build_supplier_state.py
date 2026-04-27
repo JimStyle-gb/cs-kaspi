@@ -25,20 +25,22 @@ def run() -> dict:
     parsed_manuals_payload = parse_manuals_run(manuals_payload)
     normalized_payload = normalize_official_run(parsed_products_payload)
 
+    failed_count = product_pages_payload.get('failed_count', 0)
     official_state = {
         'checked_at': now_iso(),
         'suppliers': {
             'demiand': {
-                'catalog_ok': True,
+                'catalog_ok': failed_count == 0,
                 'categories_found': categories_payload.get('categories_count', 0),
                 'catalog_pages_fetched': catalog_payload.get('catalog_pages_count', 0),
                 'products_found': product_index_state.get('meta', {}).get('products_count', 0),
                 'product_pages_fetched': product_pages_payload.get('product_pages_count', 0),
+                'product_pages_failed': failed_count,
                 'products_parsed': parsed_products_payload.get('meta', {}).get('products_count', 0),
                 'products_normalized': normalized_payload.get('meta', {}).get('products_count', 0),
                 'manuals_found': len(manuals_payload.get('manuals', [])),
                 'manuals_parsed': parsed_manuals_payload.get('manuals_count', 0),
-                'errors': 0,
+                'errors': failed_count,
             }
         }
     }
