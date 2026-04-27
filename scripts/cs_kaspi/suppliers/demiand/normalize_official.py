@@ -4,9 +4,10 @@ import re
 from copy import deepcopy
 from typing import Any
 
+from scripts.cs_kaspi.core.hash_utils import stable_hash
 from scripts.cs_kaspi.core.json_io import write_json
 from scripts.cs_kaspi.core.paths import ROOT
-from scripts.cs_kaspi.core.text_utils import normalize_spaces
+from scripts.cs_kaspi.core.text_utils import normalize_spaces, slugify_ascii
 from scripts.cs_kaspi.core.time_utils import now_iso
 from scripts.cs_kaspi.core.yaml_io import read_yaml
 
@@ -32,6 +33,12 @@ def _normalize_color(text: str | None) -> str | None:
         return "metal"
     if "беж" in value:
         return "beige"
+    if "пепел" in value:
+        return "ash"
+    if "карамел" in value:
+        return "caramel"
+    if "шоколад" in value:
+        return "chocolate"
     return None
 
 
@@ -41,6 +48,40 @@ def _clean_article(article: str | None) -> str | None:
     article = re.split(r"(?:Категори[яи]:|Метк[аи]:)", article, maxsplit=1)[0]
     article = normalize_spaces(article).strip(" ,;-")
     return article or None
+
+
+def _safe_identity_key(value: str | None, max_len: int = 56) -> str | None:
+    """Делает короткий стабильный ASCII-ключ для внутренних identity-полей."""
+    slug = slugify_ascii(value)
+    if not slug:
+        return None
+    if len(slug) <= max_len:
+        return slug
+    suffix = stable_hash(slug)[:8]
+    prefix = slug[: max_len - len(suffix) - 1].rstrip("_")
+    return f"{prefix}_{suffix}"
+
+
+def _article_base_key(article: str | None) -> str | None:
+    clean = _clean_article(article)
+    if not clean:
+        return None
+    first_part = re.split(r"[/,;|]", clean, maxsplit=1)[0]
+    return _safe_identity_key(first_part, max_len=40)
+
+
+def _fallback_model_key(category_key: str | None, title: str, article: str | None, row_model_key: str | None, slug: str | None) -> str:
+    """
+    Fallback model_key не должен превращаться в длинный slug всего названия.
+
+    Для известных моделей model_key приходит из model_specs/угадывания выше.
+    Для новых категорий и моделей безопаснее сначала брать артикул/код модели
+    (KF-3200, DK-2800 и т.п.), а не длинный SEO-slug official-страницы.
+    """
+    article_key = _article_base_key(article)
+    if article_key:
+        return article_key
+    return _safe_identity_key(row_model_key, max_len=56) or _safe_identity_key(slug, max_len=56) or _safe_identity_key(title, max_len=56) or "product"
 
 
 def _load_model_specs(supplier_key: str, category_key: str | None) -> dict[str, Any]:
@@ -102,8 +143,7 @@ def _color_from_identity(title: str, article: str | None, specs_raw: dict[str, A
     Для стабильного product_key важнее артикул и название, потому что именно они
     отличают отдельные карточки товара.
     """
-    identity_text = f"{article or ''} {title or ''}"
-    return _normalize_color(identity_text) or _normalize_color(specs_raw.get("Цвет"))
+    return _normalize_color(article) or _normalize_color(title) or _normalize_color(specs_raw.get("Цвет"))
 
 
 def _guess_variant(title: str, article: str | None, specs_raw: dict[str, Any]) -> str | None:
@@ -169,7 +209,12 @@ def run(parsed_products_payload: dict[str, Any]) -> dict[str, Any]:
 
         spec_data = _load_model_specs(row.get("supplier_key", "demiand"), category_key)
         model_key, model_cfg = _match_model(title, article, spec_data.get("models", {}))
-        model_key = model_key or _guess_model_from_article(article) or _guess_model_from_title(title) or row.get("model_key") or official.get("slug")
+        model_key = (
+            model_key
+            or _guess_model_from_article(article)
+            or _guess_model_from_title(title)
+            or _fallback_model_key(category_key, title, article, row.get("model_key"), official.get("slug"))
+        )
         variant_key = _guess_variant(title, article, specs_raw)
 
         row["model_key"] = model_key
