@@ -66,23 +66,42 @@ def _is_true_value(value: str) -> bool:
     return _text(value).lower() in {"true", "1", "yes", "да", "y", "available", "in_stock"}
 
 
+def _has_fill_columns(row: dict[str, Any]) -> bool:
+    return any(key in row for key in ("fill_source", "fill_url", "fill_price", "fill_available", "fill_stock", "fill_lead_time_days"))
+
+
+def _fill_first(row: dict[str, Any], fill_key: str, *fallback_keys: str) -> str:
+    # Generated worklists contain many non-market helper columns.
+    # If fill_* columns exist, only fill_* values activate/import a row.
+    if _has_fill_columns(row):
+        return _first(row, fill_key)
+    return _first(row, fill_key, *fallback_keys)
+
+
 def _has_any_market_fill(row: dict[str, Any]) -> bool:
-    fill_values = [
-        _first(row, "fill_source", "source", "market_source", "recommended_source"),
-        _first(row, "fill_url", "url", "market_url", "product_url"),
-        _first(row, "fill_price", "price", "market_price", "current_price"),
-        _first(row, "fill_available", "available", "in_stock"),
-        _first(row, "fill_stock", "stock", "quantity", "qty"),
-        _first(row, "fill_lead_time_days", "lead_time_days", "delivery_days", "lead_time"),
-        _first(row, "rating", "stars"),
-        _first(row, "reviews_count", "reviews", "feedbacks"),
-    ]
-    return any(fill_values)
+    if _has_fill_columns(row):
+        return any(
+            _first(row, key)
+            for key in ("fill_source", "fill_url", "fill_price", "fill_available", "fill_stock", "fill_lead_time_days")
+        )
+
+    return any(
+        _first(row, *keys)
+        for keys in (
+            ("source", "market_source"),
+            ("url", "market_url", "product_url"),
+            ("price", "market_price", "current_price"),
+            ("available", "in_stock"),
+            ("stock", "quantity", "qty"),
+            ("lead_time_days", "delivery_days", "lead_time"),
+            ("rating", "stars"),
+            ("reviews_count", "reviews", "feedbacks"),
+        )
+    )
 
 
 def _source(row: dict[str, Any]) -> str:
-    source = _first(row, "fill_source", "source", "market_source", "recommended_source")
-    source = source.lower()
+    source = _fill_first(row, "fill_source", "source", "market_source").lower()
     if source in {"wildberries", "wb"}:
         return "wb"
     if source == "ozon":
@@ -91,11 +110,11 @@ def _source(row: dict[str, Any]) -> str:
 
 
 def _available(row: dict[str, Any]) -> str:
-    value = _first(row, "fill_available", "available", "in_stock")
+    value = _fill_first(row, "fill_available", "available", "in_stock")
     if value:
         return value
 
-    stock = _first(row, "fill_stock", "stock", "quantity", "qty")
+    stock = _fill_first(row, "fill_stock", "stock", "quantity", "qty")
     stock_num = _to_number(stock)
     if stock_num is not None and stock_num > 0:
         return "true"
@@ -104,7 +123,7 @@ def _available(row: dict[str, Any]) -> str:
 
 
 def _lead_time(row: dict[str, Any]) -> str:
-    return _first(row, "fill_lead_time_days", "lead_time_days", "delivery_days", "lead_time") or "20"
+    return _fill_first(row, "fill_lead_time_days", "lead_time_days", "delivery_days", "lead_time") or "20"
 
 
 def _output_row(row: dict[str, Any]) -> dict[str, str]:
@@ -117,13 +136,13 @@ def _output_row(row: dict[str, Any]) -> dict[str, str]:
         "variant_key": _first(row, "variant_key", "variant", "color_key"),
         "official_article": _first(row, "official_article", "article", "sku", "vendor_code", "product_id"),
         "title": _first(row, "title", "official_title", "kaspi_title", "market_title", "product_name"),
-        "url": _first(row, "fill_url", "url", "market_url", "product_url"),
-        "price": _first(row, "fill_price", "price", "market_price", "current_price"),
+        "url": _fill_first(row, "fill_url", "url", "market_url", "product_url"),
+        "price": _fill_first(row, "fill_price", "price", "market_price", "current_price"),
         "available": _available(row),
-        "stock": _first(row, "fill_stock", "stock", "quantity", "qty"),
+        "stock": _fill_first(row, "fill_stock", "stock", "quantity", "qty"),
         "lead_time_days": _lead_time(row),
-        "rating": _first(row, "rating", "stars"),
-        "reviews_count": _first(row, "reviews_count", "reviews", "feedbacks"),
+        "rating": _fill_first(row, "fill_rating", "rating", "stars"),
+        "reviews_count": _fill_first(row, "fill_reviews_count", "reviews_count", "reviews", "feedbacks"),
     }
 
 
@@ -315,7 +334,7 @@ def run() -> dict[str, Any]:
         "files_detail": files_detail,
         "critical_count": sum(1 for item in problems if item.get("level") == "critical"),
         "problems": problems,
-        "note": "Fill only complete market rows. Empty rows are allowed. Partially filled rows fail fast before market data is applied.",
+        "note": "Fill only fill_* market columns in generated worklists. Context/search columns are ignored and do not activate rows. Empty rows are allowed. Partially filled rows fail fast before market data is applied.",
     }
 
     write_json(reports_dir / "market_worklist_import_report.json", report)
