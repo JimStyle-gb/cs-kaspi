@@ -48,16 +48,36 @@ def _first(row: dict[str, Any], *keys: str) -> str:
     return ""
 
 
-def _is_filled_market_row(row: dict[str, Any]) -> bool:
-    if not _first(row, "product_key", "cs_product_key"):
-        return False
-    filled_values = [
+def _to_number(value: str) -> float | None:
+    value = _text(value).replace(" ", "").replace("\u00a0", "").replace(",", ".")
+    if not value:
+        return None
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def _is_false_value(value: str) -> bool:
+    return _text(value).lower() in {"false", "0", "no", "нет", "n", "unavailable", "out_of_stock"}
+
+
+def _is_true_value(value: str) -> bool:
+    return _text(value).lower() in {"true", "1", "yes", "да", "y", "available", "in_stock"}
+
+
+def _has_any_market_fill(row: dict[str, Any]) -> bool:
+    fill_values = [
+        _first(row, "fill_source", "source", "market_source", "recommended_source"),
         _first(row, "fill_url", "url", "market_url", "product_url"),
         _first(row, "fill_price", "price", "market_price", "current_price"),
         _first(row, "fill_available", "available", "in_stock"),
         _first(row, "fill_stock", "stock", "quantity", "qty"),
+        _first(row, "fill_lead_time_days", "lead_time_days", "delivery_days", "lead_time"),
+        _first(row, "rating", "stars"),
+        _first(row, "reviews_count", "reviews", "feedbacks"),
     ]
-    return any(filled_values)
+    return any(fill_values)
 
 
 def _source(row: dict[str, Any]) -> str:
@@ -74,12 +94,12 @@ def _available(row: dict[str, Any]) -> str:
     value = _first(row, "fill_available", "available", "in_stock")
     if value:
         return value
+
     stock = _first(row, "fill_stock", "stock", "quantity", "qty")
-    try:
-        if int(float(stock.replace(" ", "").replace(",", "."))) > 0:
-            return "true"
-    except Exception:
-        pass
+    stock_num = _to_number(stock)
+    if stock_num is not None and stock_num > 0:
+        return "true"
+
     return ""
 
 
@@ -105,6 +125,50 @@ def _output_row(row: dict[str, Any]) -> dict[str, str]:
         "rating": _first(row, "rating", "stars"),
         "reviews_count": _first(row, "reviews_count", "reviews", "feedbacks"),
     }
+
+
+def _row_problems(row: dict[str, Any], out: dict[str, str], file: str, row_index: int) -> list[dict[str, Any]]:
+    problems: list[dict[str, Any]] = []
+
+    def add(message: str) -> None:
+        problems.append({"level": "critical", "message": message, "file": file, "row": row_index, "product_key": out.get("product_key", "")})
+
+    if not out.get("product_key"):
+        add("filled worklist row has empty product_key")
+        return problems
+
+    url = out.get("url", "")
+    price = out.get("price", "")
+    stock = out.get("stock", "")
+    available = out.get("available", "")
+
+    if not url:
+        add("filled worklist row has empty fill_url/url")
+
+    explicitly_unavailable = _is_false_value(available)
+    explicitly_available = _is_true_value(available)
+    stock_num = _to_number(stock)
+    price_num = _to_number(price)
+
+    should_be_sellable = explicitly_available or (stock_num is not None and stock_num > 0) or bool(price)
+
+    if should_be_sellable and not explicitly_unavailable:
+        if not price:
+            add("sellable worklist row has empty fill_price/price")
+        elif price_num is None or price_num <= 0:
+            add("sellable worklist row has invalid fill_price/price")
+
+        if not stock:
+            add("sellable worklist row has empty fill_stock/stock")
+        elif stock_num is None or stock_num < 0:
+            add("sellable worklist row has invalid fill_stock/stock")
+
+    lead_time = out.get("lead_time_days", "")
+    lead_time_num = _to_number(lead_time)
+    if lead_time and (lead_time_num is None or lead_time_num < 0):
+        add("worklist row has invalid fill_lead_time_days/lead_time_days")
+
+    return problems
 
 
 def _iter_source_files() -> list[Path]:
@@ -147,16 +211,28 @@ def _txt_report(report: dict[str, Any]) -> str:
         f"source_dir: {report.get('source_dir')}",
         f"source_files: {report.get('source_files')}",
         f"source_rows: {report.get('source_rows')}",
+        f"blank_rows: {report.get('blank_rows')}",
+        f"filled_rows: {report.get('filled_rows')}",
         f"imported_rows: {report.get('imported_rows')}",
+        f"invalid_rows: {report.get('invalid_rows')}",
         f"generated_file: {report.get('generated_file') or ''}",
         "",
         "files:",
     ]
     for item in report.get("files_detail", []):
-        lines.append(f"  {item.get('file')} | rows={item.get('rows')} | imported={item.get('imported')}")
+        lines.append(
+            f"  {item.get('file')} | rows={item.get('rows')} | blank={item.get('blank')} | "
+            f"filled={item.get('filled')} | imported={item.get('imported')} | invalid={item.get('invalid')}"
+        )
     lines.extend(["", "problems:"])
-    for item in report.get("problems", []):
-        lines.append(f"  [{item.get('level')}] {item.get('message')} | file={item.get('file')} | row={item.get('row')}")
+    problems = report.get("problems", [])
+    if not problems:
+        lines.append("  none")
+    for item in problems:
+        lines.append(
+            f"  [{item.get('level')}] {item.get('message')} | file={item.get('file')} | "
+            f"row={item.get('row')} | product_key={item.get('product_key', '')}"
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -176,27 +252,53 @@ def run() -> dict[str, Any]:
     files_detail: list[dict[str, Any]] = []
     problems: list[dict[str, Any]] = []
     source_rows = 0
+    blank_rows = 0
+    filled_rows = 0
+    invalid_rows = 0
 
     for path in files:
+        rel_path = _rel(path)
         try:
             rows = _read_csv(path)
         except Exception as exc:
-            problems.append({"level": "critical", "message": f"cannot read worklist csv: {exc}", "file": _rel(path)})
+            problems.append({"level": "critical", "message": f"cannot read worklist csv: {exc}", "file": rel_path})
             continue
 
         file_imported = 0
+        file_blank = 0
+        file_filled = 0
+        file_invalid = 0
         source_rows += len(rows)
+
         for index, row in enumerate(rows, start=2):
-            if not _is_filled_market_row(row):
+            if not _has_any_market_fill(row):
+                blank_rows += 1
+                file_blank += 1
                 continue
+
+            filled_rows += 1
+            file_filled += 1
             out = _output_row(row)
-            if not out.get("product_key"):
-                problems.append({"level": "critical", "message": "filled market row has empty product_key", "file": _rel(path), "row": index})
+            row_problems = _row_problems(row, out, rel_path, index)
+            if row_problems:
+                problems.extend(row_problems)
+                invalid_rows += 1
+                file_invalid += 1
                 continue
+
             imported.append(out)
             file_imported += 1
 
-        files_detail.append({"file": _rel(path), "rows": len(rows), "imported": file_imported})
+        files_detail.append(
+            {
+                "file": rel_path,
+                "rows": len(rows),
+                "blank": file_blank,
+                "filled": file_filled,
+                "imported": file_imported,
+                "invalid": file_invalid,
+            }
+        )
 
     _write_generated(imported)
 
@@ -205,12 +307,15 @@ def run() -> dict[str, Any]:
         "source_dir": _rel(SOURCE_DIR),
         "source_files": len(files),
         "source_rows": source_rows,
+        "blank_rows": blank_rows,
+        "filled_rows": filled_rows,
         "imported_rows": len(imported),
+        "invalid_rows": invalid_rows,
         "generated_file": _rel(GENERATED_PATH) if imported else "",
         "files_detail": files_detail,
         "critical_count": sum(1 for item in problems if item.get("level") == "critical"),
         "problems": problems,
-        "note": "Put filled worklist CSV files into input/market/worklists/. They will be converted into a temporary standard market input before refresh_market_data.",
+        "note": "Fill only complete market rows. Empty rows are allowed. Partially filled rows fail fast before market data is applied.",
     }
 
     write_json(reports_dir / "market_worklist_import_report.json", report)
