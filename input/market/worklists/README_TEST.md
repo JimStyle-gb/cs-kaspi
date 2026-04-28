@@ -1,18 +1,19 @@
 # Test filled market worklist
 
-Этот файл добавлен только для проверки importer-слоя `input/market/worklists/`.
+Тестовые строки importer-слоя отключены.
 
-Активные тестовые строки:
+Файл `demiand_filled_worklist_test.csv` оставлен только с заголовком, чтобы пример структуры не потерялся, но товары больше не активируются.
 
-- `demiand_air_fryer_duos_wifi_black`
-- `demiand_air_fryer_waison_wifi_metal`
+Для реальной работы не заполняй этот test-файл. Создавай отдельный файл в этой же папке, например:
 
-Ожидаемый результат после `Build_All` вместе с уже существующими 3 manual-market товарами:
+`input/market/worklists/demiand_filled_worklist_real_01.csv`
 
-- `market records = 5`
-- `imported_rows = 2`
-- `ready_for_kaspi = 5`
-- `create_candidates = 5`
-- `skipped = 80`
+Правило:
 
-После проверки этот тестовый файл нужно отключить отдельным патчем, чтобы не оставлять временные данные активными.
+- `product_key` не менять;
+- `fill_source` = `manual`, `ozon` или `wb`;
+- `fill_url` обязательно для активной строки;
+- `fill_price` обязательно для активной строки;
+- `fill_available` = `true` / `false`;
+- `fill_stock` обязательно для активной строки;
+- `fill_lead_time_days` желательно заполнять, если отличается от дефолта.
