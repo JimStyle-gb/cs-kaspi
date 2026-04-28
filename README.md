@@ -207,3 +207,15 @@ If an existing Kaspi product is matched, it goes to `kaspi_update_candidates.jso
 ## Market worklists
 
 После `Build_All` создаётся папка `artifacts/market_worklists/`. Она нужна для безопасного наполнения реальных market-данных: видно, какие товары уже готовы, какие ещё ждут цену/наличие, и какие строки можно использовать как основу для `input/market/*`.
+
+### Market worklist import
+
+После `Build_All` файл `artifacts/market_worklists/market_missing_products.csv` показывает товары без рыночных данных.
+
+Чтобы быстро добавить часть товаров:
+1. Заполнить в нём `fill_source`, `fill_url`, `fill_price`, `fill_available`, `fill_stock`, `fill_lead_time_days`.
+2. Сохранить заполненный CSV в `input/market/worklists/`.
+3. Запустить `Build_All`.
+
+Система сама создаст временный стандартный market input и проверит его через safety gate.
+

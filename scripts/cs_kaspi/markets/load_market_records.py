@@ -11,6 +11,7 @@ from scripts.cs_kaspi.core.yaml_io import read_yaml
 
 _ALLOWED_SUFFIXES = {".json", ".yml", ".yaml", ".csv"}
 _IGNORED_NAME_PARTS = {"example", "sample", "readme"}
+_IGNORED_DIR_PARTS = {"worklists", "templates"}
 _PRICE_RE = re.compile(r"[^0-9.,]")
 
 
@@ -113,6 +114,9 @@ def _iter_market_files(input_dir: Path) -> list[Path]:
         if not path.is_file() or path.suffix.lower() not in _ALLOWED_SUFFIXES:
             continue
         name = path.name.lower()
+        lower_parts = {part.lower() for part in path.parts}
+        if lower_parts & _IGNORED_DIR_PARTS:
+            continue
         if any(part in name for part in _IGNORED_NAME_PARTS):
             continue
         files.append(path)

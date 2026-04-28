@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from scripts.cs_kaspi.commands.refresh_official_sources import run as refresh_official_sources
+from scripts.cs_kaspi.commands.import_market_worklists import run as import_market_worklists
 from scripts.cs_kaspi.commands.refresh_market_data import run as refresh_market_data
 from scripts.cs_kaspi.commands.validate_market_inputs import run as validate_market_inputs
 from scripts.cs_kaspi.commands.refresh_kaspi_matches import run as refresh_kaspi_matches
@@ -19,6 +20,7 @@ from scripts.cs_kaspi.core.time_utils import now_iso
 def run() -> dict[str, Any]:
     result: dict[str, Any] = {"started_at": now_iso()}
     result["official"] = refresh_official_sources()
+    result["market_worklist_import"] = import_market_worklists()
     result["market"] = refresh_market_data()
     result["market_input_validation"] = validate_market_inputs()
     result["kaspi_matches"] = refresh_kaspi_matches()

@@ -55,3 +55,18 @@ artifacts/reports/market_input_validation.txt
 artifacts/reports/check_project_report.txt
 artifacts/exports/kaspi_export_preview.csv
 ```
+
+## Заполненные worklist-файлы
+
+Можно не переносить строки вручную в `manual/ozon/wb`.
+
+Положи заполненный файл из `artifacts/market_worklists/market_missing_products.csv` в:
+
+```text
+input/market/worklists/
+```
+
+`Build_All` автоматически конвертирует строки с заполненными `fill_*` полями в стандартный market input перед шагом `refresh_market_data`.
+
+Папка `input/market/worklists/` не читается напрямую как рыночный источник, чтобы пустые worklist-строки не засоряли market-layer.
+
