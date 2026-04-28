@@ -14,6 +14,7 @@ from scripts.cs_kaspi.commands.build_kaspi_match_template import run as build_ka
 from scripts.cs_kaspi.commands.build_preview import run as build_preview
 from scripts.cs_kaspi.commands.build_kaspi_exports import run as build_kaspi_exports
 from scripts.cs_kaspi.commands.build_kaspi_delivery import run as build_kaspi_delivery
+from scripts.cs_kaspi.commands.build_kaspi_test3_plan import run as build_kaspi_test3_plan
 from scripts.cs_kaspi.commands.check_project import run as check_project
 from scripts.cs_kaspi.core.time_utils import now_iso
 
@@ -32,6 +33,7 @@ def run() -> dict[str, Any]:
     result["preview"] = build_preview()
     result["exports"] = build_kaspi_exports()
     result["delivery"] = build_kaspi_delivery()
+    result["test3_plan"] = build_kaspi_test3_plan()
     result["check"] = check_project()
     result["finished_at"] = now_iso()
     return result

@@ -186,3 +186,41 @@ pause_candidate  -> draft XML available=no / stockCount=0
 ```
 
 В этих файлах ничего не отправляется в Kaspi. XML пока содержит `DRAFT_COMPANY`, `DRAFT_MERCHANT_ID`, `DRAFT_STORE_ID`; перед live-режимом их нужно заменить конфигом и добавить защиту allowlist/max_actions/approve-file.
+
+## Patch 33: контролируемый тест 3 товаров
+
+После Kaspi delivery draft проект дополнительно строит безопасный план первого теста из 3 товаров:
+
+```text
+artifacts/exports/kaspi_test3_plan.json
+artifacts/exports/kaspi_test3_preview.txt
+```
+
+Цель плана:
+
+```text
+1 товар -> create_candidate
+1 товар -> update_candidate
+1 товар -> pause_candidate
+```
+
+Этот слой ничего не отправляет в Kaspi. Он только проверяет, есть ли в draft exports нужные 3 сценария, какие SKU будут использованы и какие блокеры мешают live-тесту.
+
+Важно:
+
+```text
+create_candidate появляется, когда есть подтверждённые market-данные и нет Kaspi existing match.
+update_candidate появляется, когда есть подтверждённые market-данные и есть Kaspi existing match.
+pause_candidate появляется, когда есть Kaspi existing match, но нет sellable market-данных.
+```
+
+Перед любым live-режимом обязательно должны быть:
+
+```text
+реальные Ozon/WB/manual market-данные;
+реальные existing Kaspi SKU для update/pause;
+маппинг категории и обязательных характеристик Kaspi для create;
+allowlist только из 3 SKU;
+лимит KASPI_MAX_ACTIONS=3;
+dry-run preview перед отправкой.
+```
