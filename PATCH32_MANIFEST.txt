@@ -1,0 +1,27 @@
+CS-Kaspi patch 32 files
+
+Куда вставлять файлы:
+- README.md  <=  CS-Kaspi_patch32__README_md.txt
+- input/market/worklists/README_BATCH_01.md  <=  CS-Kaspi_patch32__input__market__worklists__README_BATCH_01_md.txt
+- input/market/worklists/demiand_priority_market_fill_batch_01.csv  <=  CS-Kaspi_patch32__input__market__worklists__demiand_priority_market_fill_batch_01_csv.txt
+- scripts/cs_kaspi/commands/build_all.py  <=  CS-Kaspi_patch32__scripts__cs_kaspi__commands__build_all_py.txt
+- scripts/cs_kaspi/commands/build_kaspi_delivery.py  <=  CS-Kaspi_patch32__scripts__cs_kaspi__commands__build_kaspi_delivery_py.txt
+- scripts/cs_kaspi/kaspi_delivery/__init__.py  <=  CS-Kaspi_patch32__scripts__cs_kaspi__kaspi_delivery____init___py.txt
+- scripts/cs_kaspi/kaspi_delivery/common.py  <=  CS-Kaspi_patch32__scripts__cs_kaspi__kaspi_delivery__common_py.txt
+- scripts/cs_kaspi/kaspi_delivery/build_create_api_payload.py  <=  CS-Kaspi_patch32__scripts__cs_kaspi__kaspi_delivery__build_create_api_payload_py.txt
+- scripts/cs_kaspi/kaspi_delivery/build_price_stock_xml.py  <=  CS-Kaspi_patch32__scripts__cs_kaspi__kaspi_delivery__build_price_stock_xml_py.txt
+- scripts/cs_kaspi/kaspi_delivery/build_delivery_summary.py  <=  CS-Kaspi_patch32__scripts__cs_kaspi__kaspi_delivery__build_delivery_summary_py.txt
+- scripts/cs_kaspi/kaspi_delivery/write_files.py  <=  CS-Kaspi_patch32__scripts__cs_kaspi__kaspi_delivery__write_files_py.txt
+
+Что делает patch 32:
+- обновляет batch Demiand до 29 приоритетных товаров;
+- убирает старые PATCH_30 заметки из batch CSV;
+- добавляет Kaspi delivery draft слой без live-отправки;
+- готовит draft JSON для будущего API-create;
+- готовит draft XML для будущих price/stock/update/pause;
+- подключает delivery draft в Build_All после build_kaspi_exports.
+
+Проверено:
+- python -m compileall scripts -> OK
+- import_market_worklists -> source_rows=29, blank_rows=29, imported_rows=0, critical_count=0
+- build_kaspi_delivery на artifacts (32) -> OK, delivery files пустые и безопасные при market=0

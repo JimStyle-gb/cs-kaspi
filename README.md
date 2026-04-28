@@ -24,6 +24,8 @@ kaspi_policy
 preview/check
         ↓
 draft exports
+        ↓
+kaspi delivery draft
 ```
 
 ## Роли источников
@@ -70,7 +72,8 @@ Build_All
 7. build market templates/worklists
 8. build preview
 9. build draft exports
-10. check project
+10. build Kaspi delivery draft
+11. check project
 ```
 
 ## Что сейчас внутри
@@ -153,6 +156,33 @@ artifacts/exports/kaspi_create_candidates.json
 artifacts/exports/kaspi_update_candidates.json
 artifacts/exports/kaspi_pause_candidates.json
 artifacts/exports/kaspi_export_preview.csv
+artifacts/exports/kaspi_create_api_payload.json
+artifacts/exports/kaspi_price_stock.xml
+artifacts/exports/kaspi_delivery_summary.json
+artifacts/exports/kaspi_delivery_preview.txt
 ```
 
 Реальный API-слой надо добавлять позже через `dry_run` и ручное подтверждение.
+
+## Kaspi delivery draft
+
+`Build_All` дополнительно готовит будущий слой доставки в Kaspi, но всё ещё в безопасном режиме `draft_only`:
+
+```text
+artifacts/exports/kaspi_create_api_payload.json
+artifacts/exports/kaspi_price_stock.xml
+artifacts/exports/kaspi_update_plan.json
+artifacts/exports/kaspi_pause_plan.json
+artifacts/exports/kaspi_delivery_summary.json
+artifacts/exports/kaspi_delivery_preview.txt
+```
+
+Логика:
+
+```text
+create_candidate -> draft JSON payload для будущего API-create
+update_candidate -> draft XML для цены/остатка/срока
+pause_candidate  -> draft XML available=no / stockCount=0
+```
+
+В этих файлах ничего не отправляется в Kaspi. XML пока содержит `DRAFT_COMPANY`, `DRAFT_MERCHANT_ID`, `DRAFT_STORE_ID`; перед live-режимом их нужно заменить конфигом и добавить защиту allowlist/max_actions/approve-file.
