@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import re
 from collections import Counter
+from html import escape
 from urllib.parse import quote_plus
 from pathlib import Path
 from typing import Any
@@ -372,6 +373,126 @@ def _write_csv(path: Path, rows: list[dict[str, Any]], headers: list[str]) -> No
             writer.writerow({key: _text(row.get(key)) for key in headers})
 
 
+
+def _short(value: Any, max_chars: int = 120) -> str:
+    text = _text(value)
+    if len(text) <= max_chars:
+        return text
+
+    words = text.split()
+    result: list[str] = []
+    for word in words:
+        candidate = _compact_spaces(" ".join(result + [word]))
+        if len(candidate) > max_chars:
+            break
+        result.append(word)
+
+    return (_compact_spaces(" ".join(result)) or text[:max_chars]).rstrip(".,;:-") + "…"
+
+
+def _html_link(url: Any, label: str) -> str:
+    text = _text(url)
+    if not text:
+        return ""
+    return f'<a href="{escape(text, quote=True)}" target="_blank" rel="noopener noreferrer">{escape(label)}</a>'
+
+
+def _write_html(path: Path, rows: list[dict[str, Any]], title: str, summary: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    parts: list[str] = []
+
+    parts.append(f"""<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{escape(title)}</title>
+  <style>
+    body {{ font-family: Arial, sans-serif; margin: 24px; background: #f7f7f7; color: #1f2933; }}
+    h1 {{ margin: 0 0 8px; font-size: 24px; }}
+    .meta {{ margin: 0 0 18px; color: #52606d; line-height: 1.5; }}
+    .hint {{ background: #fff7cc; border: 1px solid #f0d66a; padding: 12px 14px; border-radius: 10px; margin-bottom: 18px; }}
+    table {{ border-collapse: collapse; width: 100%; background: #fff; box-shadow: 0 1px 8px rgba(15, 23, 42, .08); }}
+    th, td {{ border: 1px solid #e4e7eb; padding: 8px 10px; vertical-align: top; font-size: 13px; }}
+    th {{ background: #eef2f7; position: sticky; top: 0; z-index: 1; text-align: left; }}
+    tr:nth-child(even) {{ background: #fafafa; }}
+    .links a {{ display: inline-block; margin: 0 6px 6px 0; padding: 4px 7px; border-radius: 7px; background: #e6f4ff; color: #0967d2; text-decoration: none; }}
+    .links a:hover {{ text-decoration: underline; }}
+    .key {{ font-family: Consolas, monospace; font-size: 12px; color: #334e68; }}
+    .fill {{ color: #7b8794; }}
+  </style>
+</head>
+<body>
+  <h1>{escape(title)}</h1>
+  <div class="meta">
+    built_at: {escape(_text(summary.get("built_at")))}<br>
+    total_products: {escape(_text(summary.get("total_products")))} |
+    missing_market_products: {escape(_text(summary.get("missing_market_products")))} |
+    ready_market_products: {escape(_text(summary.get("ready_market_products")))}
+  </div>
+  <div class="hint">
+    Открывай ссылки Ozon/WB/Kaspi/Google, находи реальную цену и наличие, затем заполняй CSV-колонки
+    <b>fill_source</b>, <b>fill_url</b>, <b>fill_price</b>, <b>fill_available</b>,
+    <b>fill_stock</b>, <b>fill_lead_time_days</b>. Product_key не менять.
+  </div>
+  <table>
+    <thead>
+      <tr>
+        <th>#</th>
+        <th>Priority</th>
+        <th>Product</th>
+        <th>Search</th>
+        <th>Links</th>
+        <th>Fill fields</th>
+      </tr>
+    </thead>
+    <tbody>
+""")
+
+    for idx, row in enumerate(rows, start=1):
+        links = " ".join([
+            _html_link(row.get("search_ozon_url"), "Ozon"),
+            _html_link(row.get("search_wb_url"), "WB"),
+            _html_link(row.get("search_kaspi_url"), "Kaspi"),
+            _html_link(row.get("search_google_url"), "Google"),
+            _html_link(row.get("official_url"), "Official"),
+            _html_link(row.get("current_market_url"), "Market URL"),
+        ])
+
+        product_html = "<br>".join([
+            f'<span class="key">{escape(_text(row.get("product_key")))}</span>',
+            escape(_text(row.get("category_key"))),
+            f'Артикул: {escape(_text(row.get("official_article")))}',
+            f'Цена official: {escape(_text(row.get("official_price")))}',
+            escape(_short(row.get("official_title"), 150)),
+        ])
+
+        fill_html = "<br>".join([
+            f'source: <span class="fill">{escape(_text(row.get("fill_source")))}</span>',
+            f'url: <span class="fill">{escape(_short(row.get("fill_url"), 80))}</span>',
+            f'price: <span class="fill">{escape(_text(row.get("fill_price")))}</span>',
+            f'available: <span class="fill">{escape(_text(row.get("fill_available")))}</span>',
+            f'stock: <span class="fill">{escape(_text(row.get("fill_stock")))}</span>',
+            f'lead_time_days: <span class="fill">{escape(_text(row.get("fill_lead_time_days")))}</span>',
+        ])
+
+        parts.append(f"""      <tr>
+        <td>{idx}</td>
+        <td>{escape(_text(row.get("priority")))}<br>{escape(_text(row.get("market_priority_bucket")))}</td>
+        <td>{product_html}</td>
+        <td>{escape(_text(row.get("search_query")))}</td>
+        <td class="links">{links}</td>
+        <td>{fill_html}</td>
+      </tr>
+""")
+
+    parts.append("""    </tbody>
+  </table>
+</body>
+</html>
+""")
+    path.write_text("".join(parts), encoding="utf-8")
+
 def _write_readme(path: Path, summary: dict[str, Any]) -> None:
     text = f"""CS-Kaspi market worklists
 
@@ -387,10 +508,13 @@ ready_market_products: {summary.get('ready_market_products')}
 - market_priority_missing_products.csv — приоритетные товары без market-данных: основная техника выше аксессуаров.
 - market_input_missing_blank.csv — заготовка в формате input/market для товаров без market-данных.
 - market_worklist_summary.json — краткая статистика.
+- market_priority_missing_products.html — HTML-страница с кликабельными ссылками по приоритетным товарам.
+- market_missing_products.html — HTML-страница по всем товарам без market-данных.
+- market_ready_products.html — HTML-страница по товарам, где market-данные уже есть.
 
 Как работать:
 1. Открой market_missing_products.csv или market_priority_missing_products.csv.
-2. Для быстрого поиска используй search_ozon_url, search_wb_url, search_kaspi_url, search_google_url.
+2. Для быстрого поиска используй HTML-файлы или колонки search_ozon_url, search_wb_url, search_kaspi_url, search_google_url.
 3. В patch 24 search_query специально укорочен: бренд + артикул + модель + тип товара + цвет.
 4. Для нужных товаров заполни fill_source, fill_url, fill_price, fill_available, fill_stock, fill_lead_time_days.
 5. Заполненный CSV можно положить в input/market/worklists/ — importer сам создаст стандартный input.
@@ -425,6 +549,9 @@ def run() -> dict[str, Any]:
     priority_csv = out_dir / "market_priority_missing_products.csv"
     ready_csv = out_dir / "market_ready_products.csv"
     blank_csv = out_dir / "market_input_missing_blank.csv"
+    missing_html = out_dir / "market_missing_products.html"
+    priority_html = out_dir / "market_priority_missing_products.html"
+    ready_html = out_dir / "market_ready_products.html"
     summary_json = out_dir / "market_worklist_summary.json"
     readme_txt = out_dir / "README.txt"
 
@@ -450,10 +577,16 @@ def run() -> dict[str, Any]:
             "priority_missing_products": _rel(priority_csv),
             "ready_products": _rel(ready_csv),
             "blank_input": _rel(blank_csv),
+            "missing_products_html": _rel(missing_html),
+            "priority_missing_products_html": _rel(priority_html),
+            "ready_products_html": _rel(ready_html),
             "readme": _rel(readme_txt),
         },
     }
     write_json(summary_json, summary)
+    _write_html(missing_html, missing_rows, "CS-Kaspi: товары без market-данных", summary)
+    _write_html(priority_html, priority_missing_rows, "CS-Kaspi: приоритетный поиск market-данных", summary)
+    _write_html(ready_html, ready_rows, "CS-Kaspi: товары с market-данными", summary)
     _write_readme(readme_txt, summary)
 
     return summary
