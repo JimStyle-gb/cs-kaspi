@@ -203,3 +203,7 @@ artifacts/kaspi_match_templates/kaspi_existing_template.csv
 ```
 
 If an existing Kaspi product is matched, it goes to `kaspi_update_candidates.json`. If it is not matched and is sellable, it stays in `kaspi_create_candidates.json`. If it is matched but no longer sellable, it goes to `kaspi_pause_candidates.json`.
+
+## Market worklists
+
+После `Build_All` создаётся папка `artifacts/market_worklists/`. Она нужна для безопасного наполнения реальных market-данных: видно, какие товары уже готовы, какие ещё ждут цену/наличие, и какие строки можно использовать как основу для `input/market/*`.

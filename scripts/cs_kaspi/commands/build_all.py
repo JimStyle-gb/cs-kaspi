@@ -8,6 +8,7 @@ from scripts.cs_kaspi.commands.validate_market_inputs import run as validate_mar
 from scripts.cs_kaspi.commands.refresh_kaspi_matches import run as refresh_kaspi_matches
 from scripts.cs_kaspi.commands.build_master_catalog import run as build_master_catalog
 from scripts.cs_kaspi.commands.build_market_template import run as build_market_template
+from scripts.cs_kaspi.commands.build_market_worklist import run as build_market_worklist
 from scripts.cs_kaspi.commands.build_kaspi_match_template import run as build_kaspi_match_template
 from scripts.cs_kaspi.commands.build_preview import run as build_preview
 from scripts.cs_kaspi.commands.build_kaspi_exports import run as build_kaspi_exports
@@ -23,6 +24,7 @@ def run() -> dict[str, Any]:
     result["kaspi_matches"] = refresh_kaspi_matches()
     result["master_summary"] = build_master_catalog()
     result["market_template"] = build_market_template()
+    result["market_worklist"] = build_market_worklist()
     result["kaspi_match_template"] = build_kaspi_match_template()
     result["preview"] = build_preview()
     result["exports"] = build_kaspi_exports()

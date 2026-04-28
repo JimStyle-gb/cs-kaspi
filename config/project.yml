@@ -11,6 +11,7 @@ paths:
   artifacts_reports_dir: artifacts/reports
   artifacts_exports_dir: artifacts/exports
   artifacts_market_templates_dir: artifacts/market_templates
+  artifacts_market_worklists_dir: artifacts/market_worklists
   artifacts_kaspi_match_templates_dir: artifacts/kaspi_match_templates
 
 runtime:

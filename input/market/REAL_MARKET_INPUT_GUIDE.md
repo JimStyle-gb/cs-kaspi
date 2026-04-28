@@ -36,3 +36,23 @@
 - Нельзя оставлять `url` пустым для Ozon/WB.
 - Нельзя менять `product_key` вручную.
 - Нельзя считать Ozon/WB технической истиной товара: это только market-layer.
+
+## Worklist после patch 19
+
+`Build_All` дополнительно создаёт папку:
+
+- `artifacts/market_worklists/`
+
+Главные файлы:
+
+- `market_missing_products.csv` — какие товары ещё нужно проверить на Ozon/WB/manual.
+- `market_ready_products.csv` — какие товары уже имеют market-данные.
+- `market_all_products.csv` — полный список товаров и текущий market-статус.
+- `market_input_missing_blank.csv` — заготовка в стандартном формате input/market.
+
+Рабочий порядок:
+
+1. Смотри `market_missing_products.csv`.
+2. Заполняй только реальные найденные товары.
+3. Переноси заполненные строки в `input/market/manual/demiand_manual_market_real.csv`, `input/market/ozon/demiand_ozon_market.csv` или `input/market/wb/demiand_wb_market.csv`.
+4. Не копируй пустые строки в боевые input-файлы.
