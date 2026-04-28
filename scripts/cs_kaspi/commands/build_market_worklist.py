@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 from collections import Counter
+from urllib.parse import quote_plus
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,7 @@ CSV_HEADERS = [
     "kaspi_price",
     "kaspi_stock",
     "lead_time_days",
+    "market_priority_bucket",
     "recommended_source",
     "fill_source",
     "fill_url",
@@ -37,6 +39,10 @@ CSV_HEADERS = [
     "fill_stock",
     "fill_lead_time_days",
     "search_query",
+    "search_ozon_url",
+    "search_wb_url",
+    "search_kaspi_url",
+    "search_google_url",
     "notes",
 ]
 
@@ -146,6 +152,29 @@ def _recommended_source(product: dict[str, Any]) -> str:
     return "manual/ozon/wb"
 
 
+def _priority_bucket(product: dict[str, Any]) -> str:
+    category_key = str(product.get("category_key") or "")
+    official = product.get("official", {}) or {}
+    price = _int(official.get("price"), 0)
+    if category_key == "air_fryers":
+        return "1_main_air_fryers"
+    if category_key in {"coffee_makers", "ovens", "blenders"}:
+        return "2_main_kitchen"
+    if price >= 10_000:
+        return "3_high_price_accessories"
+    return "4_accessories"
+
+
+def _search_urls(query: str) -> dict[str, str]:
+    encoded = quote_plus(query)
+    return {
+        "search_ozon_url": f"https://www.ozon.kz/search/?text={encoded}",
+        "search_wb_url": f"https://www.wildberries.ru/catalog/0/search.aspx?search={encoded}",
+        "search_kaspi_url": f"https://kaspi.kz/shop/search/?text={encoded}",
+        "search_google_url": f"https://www.google.com/search?q={quote_plus(query + ' купить Казахстан')}",
+    }
+
+
 def _row(product: dict[str, Any]) -> dict[str, Any]:
     official = product.get("official", {}) or {}
     kaspi = product.get("kaspi_policy", {}) or {}
@@ -153,6 +182,8 @@ def _row(product: dict[str, Any]) -> dict[str, Any]:
     status = product.get("status", {}) or {}
     title = official.get("title_official") or kaspi.get("kaspi_title") or ""
     market_sellable = market.get("sellable") is True
+    query = _search_query(product)
+    search_urls = _search_urls(query)
     return {
         "priority": _priority(product),
         "product_key": product.get("product_key"),
@@ -173,6 +204,7 @@ def _row(product: dict[str, Any]) -> dict[str, Any]:
         "kaspi_price": kaspi.get("kaspi_price") or "",
         "kaspi_stock": kaspi.get("kaspi_stock") or "",
         "lead_time_days": kaspi.get("lead_time_days") or market.get("lead_time_days") or "",
+        "market_priority_bucket": _priority_bucket(product),
         "recommended_source": _recommended_source(product),
         "fill_source": "",
         "fill_url": "",
@@ -180,7 +212,11 @@ def _row(product: dict[str, Any]) -> dict[str, Any]:
         "fill_available": "",
         "fill_stock": "",
         "fill_lead_time_days": "",
-        "search_query": _search_query(product),
+        "search_query": query,
+        "search_ozon_url": search_urls["search_ozon_url"],
+        "search_wb_url": search_urls["search_wb_url"],
+        "search_kaspi_url": search_urls["search_kaspi_url"],
+        "search_google_url": search_urls["search_google_url"],
         "notes": "для input/market заполнять fill_*; product_key не менять",
     }
 
@@ -226,15 +262,17 @@ ready_market_products: {summary.get('ready_market_products')}
 - market_missing_products.csv — товары, где ещё нет sellable market-данных.
 - market_ready_products.csv — товары, где market-данные уже есть.
 - market_all_products.csv — полный список товаров с текущим статусом рынка.
+- market_priority_missing_products.csv — приоритетные товары без market-данных: основная техника выше аксессуаров.
 - market_input_missing_blank.csv — заготовка в формате input/market для товаров без market-данных.
 - market_worklist_summary.json — краткая статистика.
 
 Как работать:
 1. Открой market_missing_products.csv.
-2. Для нужных товаров заполни fill_source, fill_url, fill_price, fill_available, fill_stock, fill_lead_time_days.
-3. Перенеси заполненные строки в боевой input-файл: input/market/manual/demiand_manual_market_real.csv, input/market/ozon/demiand_ozon_market.csv или input/market/wb/demiand_wb_market.csv.
-4. В боевом файле должны быть стандартные колонки: source, product_key, url, price, available, stock, lead_time_days.
-5. product_key менять нельзя.
+2. Для быстрого поиска используй search_ozon_url, search_wb_url, search_kaspi_url, search_google_url.
+3. Для нужных товаров заполни fill_source, fill_url, fill_price, fill_available, fill_stock, fill_lead_time_days.
+4. Заполненный CSV можно положить в input/market/worklists/ — importer сам создаст стандартный input.
+5. Либо перенеси заполненные строки в боевой input-файл: input/market/manual/demiand_manual_market_real.csv, input/market/ozon/demiand_ozon_market.csv или input/market/wb/demiand_wb_market.csv.
+6. product_key менять нельзя.
 
 Важно:
 - Эти worklist-файлы лежат в artifacts и не являются боевым input сами по себе.
@@ -252,11 +290,16 @@ def run() -> dict[str, Any]:
 
     missing_rows = [row for row in rows if row.get("current_market_status") != "ready"]
     ready_rows = [row for row in rows if row.get("current_market_status") == "ready"]
+    priority_missing_rows = [
+        row for row in missing_rows
+        if str(row.get("market_priority_bucket") or "").startswith(("1_", "2_", "3_"))
+    ]
     blank_input_rows = [_input_row(row) for row in missing_rows]
 
     out_dir = _worklist_dir()
     all_csv = out_dir / "market_all_products.csv"
     missing_csv = out_dir / "market_missing_products.csv"
+    priority_csv = out_dir / "market_priority_missing_products.csv"
     ready_csv = out_dir / "market_ready_products.csv"
     blank_csv = out_dir / "market_input_missing_blank.csv"
     summary_json = out_dir / "market_worklist_summary.json"
@@ -264,6 +307,7 @@ def run() -> dict[str, Any]:
 
     _write_csv(all_csv, rows, CSV_HEADERS)
     _write_csv(missing_csv, missing_rows, CSV_HEADERS)
+    _write_csv(priority_csv, priority_missing_rows, CSV_HEADERS)
     _write_csv(ready_csv, ready_rows, CSV_HEADERS)
     _write_csv(blank_csv, blank_input_rows, INPUT_HEADERS)
 
@@ -274,9 +318,12 @@ def run() -> dict[str, Any]:
         "ready_market_products": len(ready_rows),
         "missing_by_category": dict(Counter(row.get("category_key") for row in missing_rows)),
         "ready_by_category": dict(Counter(row.get("category_key") for row in ready_rows)),
+        "missing_by_priority_bucket": dict(Counter(row.get("market_priority_bucket") for row in missing_rows)),
+        "priority_missing_products": len(priority_missing_rows),
         "files": {
             "all_products": _rel(all_csv),
             "missing_products": _rel(missing_csv),
+            "priority_missing_products": _rel(priority_csv),
             "ready_products": _rel(ready_csv),
             "blank_input": _rel(blank_csv),
             "readme": _rel(readme_txt),
