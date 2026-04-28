@@ -1,15 +1,16 @@
 # TEST: Kaspi existing update candidate
 
-Временный тестовый файл для проверки update-candidate.
+Тест update-candidate проверен и отключён.
 
-Активная строка:
-- product_key: demiand_air_fryer_tison_wifi_metal
-- kaspi_product_id: KSP-UPDATE-TEST-001
+Файл `demiand_existing_kaspi_update_test.csv` оставлен только с заголовком, без активных строк.
+
+Важно:
+- не добавлять сюда реальные товары Kaspi;
+- для настоящей выгрузки существующих товаров Kaspi использовать отдельный боевой CSV-файл;
+- тестовый `KSP-UPDATE-TEST-001` удалён, чтобы проект не считал товар реально существующим в Kaspi.
 
 Ожидаемый результат после Build_All при текущих 3 real manual market items:
-- create_candidates: 2
-- update_candidates: 1
+- create_candidates: 3
+- update_candidates: 0
 - pause_candidates: 0
 - skipped: 82
-
-После проверки этот тестовый файл нужно отключить отдельным patch, чтобы KSP-UPDATE-TEST-001 не остался как будто реальный товар Kaspi.
