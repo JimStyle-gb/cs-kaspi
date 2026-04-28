@@ -1,0 +1,60 @@
+markets:
+  ozon:
+    enabled: true
+    role: price_availability_presence_only
+    input_mode: file
+    can_activate_product: true
+    can_set_price: true
+  wb:
+    enabled: true
+    role: price_availability_presence_only
+    input_mode: file
+    can_activate_product: true
+    can_set_price: true
+  manual:
+    enabled: true
+    role: verified_manual_market_input
+    input_mode: file
+    can_activate_product: true
+    can_set_price: true
+  google:
+    enabled: false
+    role: helper_search_only
+    can_activate_product: false
+    can_set_price: false
+  kaspi:
+    enabled: false
+    role: helper_competitor_check_and_existing_match_only
+    can_activate_product: false
+    can_set_price: false
+
+input:
+  directory: input/market
+  supported_formats:
+    - json
+    - yml
+    - yaml
+    - csv
+  ignored_filename_parts:
+    - example
+    - sample
+    - readme
+
+business_rules:
+  official_source_role: technical_truth
+  ozon_wb_role: price_availability_presence
+  kaspi_role: own_vaitan_export_layer
+  google_role: helper_search_only
+  kaspi_search_role: helper_competitor_check_only
+  title_goal: create_unique_vaitan_cards_not_attach_to_competitors
+  same_model_different_color_is_different_product: true
+  source_price_rule: lowest_sellable_ozon_or_wb_price_plus_policy_markup
+
+matching:
+  order:
+    - product_key
+    - supplier_article
+    - article
+    - supplier_model_variant
+    - model_variant
+    - title

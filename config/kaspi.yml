@@ -1,0 +1,42 @@
+defaults:
+  currency: KZT
+  stock_when_market_missing: 0
+  lead_time_days_when_market_missing: 20
+  max_images: 10
+  title_max_length: 120
+
+title_policy:
+  use_vaitan_in_title: true
+  title_prefix: VAITAN
+  uniqueness_goal: own_kaspi_cards_not_attach_to_competitors
+  keep_real_brand: true
+  real_brand_position: after_vaitan
+
+price_policy:
+  source: market_layer
+  market_sources_for_price:
+    - ozon
+    - wb
+    - manual
+  forbidden_price_sources:
+    - google
+    - kaspi
+  choose_market_price: lowest_sellable_price
+  allow_official_price_as_final: false
+  fallback_price: null
+  markup_percent: 30
+  fixed_add_kzt: 0
+  min_margin_kzt: 1500
+  round_to_kzt: 100
+
+delivery:
+  mode: draft_only
+  live_send_enabled: false
+  company: DRAFT_COMPANY
+  merchant_id: DRAFT_MERCHANT_ID
+  store_id: DRAFT_STORE_ID
+  max_actions_first_live_test: 3
+  allowed_skus: []
+  api_create_enabled: false
+  xml_price_stock_enabled: false
+  note: Live delivery is intentionally disabled until manual approval, Kaspi mapping, and SKU allowlist are ready.
