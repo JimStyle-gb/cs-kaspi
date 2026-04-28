@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import re
 from collections import Counter
 from urllib.parse import quote_plus
 from pathlib import Path
@@ -72,6 +73,25 @@ CATEGORY_PRIORITY = {
     "air_fryer_accessories": 50,
 }
 
+CATEGORY_SEARCH_WORDS = {
+    "air_fryers": "аэрогриль",
+    "coffee_makers": "кофеварка",
+    "ovens": "печь",
+    "blenders": "блендер",
+    "air_fryer_accessories": "аксессуар аэрогриль",
+}
+
+VARIANT_SEARCH_WORDS = {
+    "black": "черный",
+    "white": "белый",
+    "metal": "металл",
+    "ash": "пепельный",
+    "caramel": "карамельный",
+    "chocolate": "шоколадный",
+}
+
+MAX_SEARCH_QUERY_CHARS = 120
+
 
 def _worklist_dir() -> Path:
     try:
@@ -125,24 +145,125 @@ def _priority(product: dict[str, Any]) -> int:
     return base + 3
 
 
+def _compact_spaces(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip()
+
+
+def _article_for_search(value: Any) -> str:
+    text = _text(value)
+    if not text:
+        return ""
+
+    text = text.replace("_", " ").replace("/", " ")
+    text = re.sub(r"(?<=[0-9])(?=[A-Za-zА-Яа-яЁё])", " ", text)
+    text = re.sub(r"(?<=[A-Za-zА-Яа-яЁё])(?=[0-9])", " ", text)
+    text = re.sub(r"[(){}\[\],;:|]+", " ", text)
+    text = re.sub(r"\s*-\s*", "-", text)
+    return _compact_spaces(text)
+
+
+def _model_for_search(value: Any) -> str:
+    text = _text(value)
+    if not text:
+        return ""
+    text = text.replace("_", " ").replace("-", " ")
+    return _compact_spaces(text).upper()
+
+
+def _variant_for_search(product: dict[str, Any]) -> str:
+    variant_key = str(product.get("variant_key") or "").lower()
+    if not variant_key:
+        return ""
+    words: list[str] = []
+    for key, label in VARIANT_SEARCH_WORDS.items():
+        if key in variant_key:
+            words.append(label)
+    return _compact_spaces(" ".join(words))
+
+
+def _title_hint(product: dict[str, Any]) -> str:
+    """Короткая подсказка из title только для аксессуаров, где одного артикула мало."""
+    category_key = str(product.get("category_key") or "")
+    if category_key != "air_fryer_accessories":
+        return ""
+
+    official = product.get("official", {}) or {}
+    title = _text(official.get("title_official"))
+    if not title:
+        return ""
+
+    stop_words = {
+        "demiand",
+        "для",
+        "к",
+        "и",
+        "с",
+        "на",
+        "в",
+        "цвета",
+        "черного",
+        "белого",
+        "аэрогрилю",
+        "аэрогриля",
+        "аэрогрилей",
+    }
+    words: list[str] = []
+    for raw in re.split(r"\s+", title):
+        word = re.sub(r"[^0-9A-Za-zА-Яа-яЁё-]+", "", raw).strip()
+        if len(word) < 3:
+            continue
+        if word.lower() in stop_words:
+            continue
+        words.append(word)
+        if len(words) >= 5:
+            break
+    return _compact_spaces(" ".join(words))
+
+
+def _dedupe_words(query: str) -> str:
+    result: list[str] = []
+    seen: set[str] = set()
+    for word in re.split(r"\s+", query):
+        cleaned = word.strip()
+        key = cleaned.lower().replace("ё", "е")
+        if not cleaned or key in seen:
+            continue
+        seen.add(key)
+        result.append(cleaned)
+    return " ".join(result)
+
+
+def _trim_query(query: str, max_chars: int = MAX_SEARCH_QUERY_CHARS) -> str:
+    query = _compact_spaces(query)
+    if len(query) <= max_chars:
+        return query
+
+    words = query.split()
+    result: list[str] = []
+    for word in words:
+        candidate = _compact_spaces(" ".join(result + [word]))
+        if len(candidate) > max_chars:
+            break
+        result.append(word)
+    return _compact_spaces(" ".join(result)) or query[:max_chars].strip()
+
+
 def _search_query(product: dict[str, Any]) -> str:
     official = product.get("official", {}) or {}
     brand = product.get("brand") or official.get("brand") or "Demiand"
+    category_key = str(product.get("category_key") or "")
+
     pieces = [
         brand,
-        official.get("product_id") or "",
-        product.get("model_key") or "",
-        official.get("title_official") or "",
+        _article_for_search(official.get("product_id") or official.get("article") or ""),
+        _model_for_search(product.get("model_key") or ""),
+        CATEGORY_SEARCH_WORDS.get(category_key, ""),
+        _variant_for_search(product),
+        _title_hint(product),
     ]
-    result: list[str] = []
-    seen: set[str] = set()
-    for piece in pieces:
-        text = _text(piece)
-        key = text.lower()
-        if text and key not in seen:
-            seen.add(key)
-            result.append(text)
-    return " ".join(result)
+
+    query = _dedupe_words(_compact_spaces(" ".join(_text(piece) for piece in pieces if _text(piece))))
+    return _trim_query(query)
 
 
 def _recommended_source(product: dict[str, Any]) -> str:
@@ -167,11 +288,12 @@ def _priority_bucket(product: dict[str, Any]) -> str:
 
 def _search_urls(query: str) -> dict[str, str]:
     encoded = quote_plus(query)
+    google_query = _compact_spaces(query + " купить Казахстан")
     return {
         "search_ozon_url": f"https://www.ozon.kz/search/?text={encoded}",
         "search_wb_url": f"https://www.wildberries.ru/catalog/0/search.aspx?search={encoded}",
         "search_kaspi_url": f"https://kaspi.kz/shop/search/?text={encoded}",
-        "search_google_url": f"https://www.google.com/search?q={quote_plus(query + ' купить Казахстан')}",
+        "search_google_url": f"https://www.google.com/search?q={quote_plus(google_query)}",
     }
 
 
@@ -267,12 +389,13 @@ ready_market_products: {summary.get('ready_market_products')}
 - market_worklist_summary.json — краткая статистика.
 
 Как работать:
-1. Открой market_missing_products.csv.
+1. Открой market_missing_products.csv или market_priority_missing_products.csv.
 2. Для быстрого поиска используй search_ozon_url, search_wb_url, search_kaspi_url, search_google_url.
-3. Для нужных товаров заполни fill_source, fill_url, fill_price, fill_available, fill_stock, fill_lead_time_days.
-4. Заполненный CSV можно положить в input/market/worklists/ — importer сам создаст стандартный input.
-5. Либо перенеси заполненные строки в боевой input-файл: input/market/manual/demiand_manual_market_real.csv, input/market/ozon/demiand_ozon_market.csv или input/market/wb/demiand_wb_market.csv.
-6. product_key менять нельзя.
+3. В patch 24 search_query специально укорочен: бренд + артикул + модель + тип товара + цвет.
+4. Для нужных товаров заполни fill_source, fill_url, fill_price, fill_available, fill_stock, fill_lead_time_days.
+5. Заполненный CSV можно положить в input/market/worklists/ — importer сам создаст стандартный input.
+6. Либо перенеси заполненные строки в боевой input-файл: input/market/manual/demiand_manual_market_real.csv, input/market/ozon/demiand_ozon_market.csv или input/market/wb/demiand_wb_market.csv.
+7. product_key менять нельзя.
 
 Важно:
 - Эти worklist-файлы лежат в artifacts и не являются боевым input сами по себе.
@@ -320,6 +443,7 @@ def run() -> dict[str, Any]:
         "ready_by_category": dict(Counter(row.get("category_key") for row in ready_rows)),
         "missing_by_priority_bucket": dict(Counter(row.get("market_priority_bucket") for row in missing_rows)),
         "priority_missing_products": len(priority_missing_rows),
+        "max_search_query_length": max((len(str(row.get("search_query") or "")) for row in rows), default=0),
         "files": {
             "all_products": _rel(all_csv),
             "missing_products": _rel(missing_csv),
