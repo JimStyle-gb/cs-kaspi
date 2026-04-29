@@ -1,0 +1,14 @@
+project:
+  name: CS-Kaspi
+  version: v6-seed-listing
+  timezone: Asia/Almaty
+  main_supplier: demiand
+  mode: github_only
+
+paths:
+  artifacts_state_dir: artifacts/state
+  artifacts_reports_dir: artifacts/reports
+  artifacts_preview_dir: artifacts/preview
+  artifacts_exports_dir: artifacts/exports
+  artifacts_market_discovery_dir: artifacts/market_discovery
+  input_kaspi_existing_dir: input/kaspi/existing
