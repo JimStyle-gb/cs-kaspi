@@ -83,6 +83,24 @@ def _same_market_family(source: str, href: str) -> bool:
         return True
 
 
+
+
+_BLOCK_MARKERS = (
+    "доступ ограничен",
+    "access denied",
+    "captcha",
+    "robot",
+    "robots",
+    "too many requests",
+    "request blocked",
+    "проверка безопасности",
+)
+
+
+def _looks_blocked(text: str) -> bool:
+    low = (text or "").lower()
+    return any(marker in low for marker in _BLOCK_MARKERS)
+
 def _first_url(value: Any, seed_url: str) -> str:
     if not isinstance(value, str):
         return ""
@@ -196,7 +214,7 @@ def _wb_price_text(product: dict[str, Any]) -> str:
     return ""
 
 
-def _extract_wb_api_products(obj: Any, seed_url: str, limit: int = 3000) -> list[dict[str, Any]]:
+def _extract_wb_api_products(obj: Any, seed_url: str, limit: int = 3000, expected_brand: str = "") -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     stack: list[Any] = [obj]
     seen = 0
@@ -207,12 +225,20 @@ def _extract_wb_api_products(obj: Any, seed_url: str, limit: int = 3000) -> list
             product_id = cur.get("id") or cur.get("nmId") or cur.get("productId")
             name = cur.get("name") or cur.get("title")
             if isinstance(product_id, (int, str)) and isinstance(name, str) and len(name.strip()) >= 4:
-                href = f"https://www.wildberries.ru/catalog/{product_id}/detail.aspx"
                 brand = cur.get("brand") or cur.get("brandName") or ""
                 price = _wb_price_text(cur)
-                text_lines = [str(brand), name]
-                if price:
-                    text_lines.append(price)
+                title_blob = f"{brand} {name}".lower()
+                expected = str(expected_brand or "").lower().strip()
+                # WB app JSON contains many menu/category items with id/name.
+                # A real sellable listing must have a visible price and belong to the seed brand.
+                if not price:
+                    stack.extend(cur.values())
+                    continue
+                if expected and expected not in title_blob:
+                    stack.extend(cur.values())
+                    continue
+                href = f"https://www.wildberries.ru/catalog/{product_id}/detail.aspx"
+                text_lines = [str(brand), name, price]
                 if cur.get("feedbacks") is not None:
                     text_lines.append(f"Отзывы: {cur.get('feedbacks')}")
                 out.append(
@@ -297,18 +323,26 @@ def _cards_from_html_regex(source: str, html: str, seed_url: str, limit: int = 3
 
 def _extract_script() -> str:
     return r"""
-    ({source}) => {
+    ({source, brand}) => {
+      const brandText = String(brand || '').trim().toLowerCase();
+      const isBrandCard = (text) => {
+        if (!brandText) return true;
+        return String(text || '').toLowerCase().includes(brandText);
+      };
       const pickContainer = (a) => {
+        const preferred = a.closest('[class*=product-card], [class*=goods-tile], [data-nm-id], article, li');
+        if (preferred) return preferred;
         let node = a;
         let best = a;
         for (let i = 0; i < 10 && node; i += 1) {
           const text = (node.innerText || '').trim();
-          if (text.length > ((best.innerText || '').trim().length || 0)) best = node;
+          if (text.length > ((best.innerText || '').trim().length || 0) && text.length < 2500) best = node;
           node = node.parentElement;
         }
         return best;
       };
       const out = [];
+      const seen = new Set();
       const anchors = Array.from(document.querySelectorAll('a[href]'));
       for (const a of anchors) {
         const href = a.href || a.getAttribute('href') || '';
@@ -316,19 +350,23 @@ def _extract_script() -> str:
         let ok = false;
         if (source === 'ozon') ok = lower.includes('/product/');
         if (source === 'wb') ok = lower.includes('/catalog/') && lower.includes('/detail');
-        if (!ok) continue;
+        if (!ok || seen.has(href)) continue;
         const box = pickContainer(a);
         const img = box ? box.querySelector('img') : null;
         const imgSrc = img ? (img.currentSrc || img.src || img.getAttribute('src') || '') : '';
         const imgAlt = img ? (img.alt || img.getAttribute('alt') || '') : '';
         const aria = a.getAttribute('aria-label') || a.getAttribute('title') || '';
+        const containerText = box ? (box.innerText || '').trim() : '';
+        const allText = [containerText, aria, imgAlt, a.innerText || ''].join('\n');
+        if (source === 'wb' && !isBrandCard(allText)) continue;
+        seen.add(href);
         out.push({
           href,
           link_text: (a.innerText || '').trim(),
           aria_label: aria.trim(),
           image: imgSrc,
           image_alt: imgAlt.trim(),
-          container_text: box ? (box.innerText || '').trim() : '',
+          container_text: containerText,
           html: box ? box.outerHTML.slice(0, 3000) : '',
           extract_method: 'dom_anchor'
         });
@@ -337,6 +375,62 @@ def _extract_script() -> str:
     }
     """.strip()
 
+
+
+def _product_urls_from_html(source: str, html: str, seed_url: str, limit: int = 3000) -> list[str]:
+    urls: list[str] = []
+    seen: set[str] = set()
+    if source == "ozon":
+        pattern = r'(?:href=|url["\']?\s*[:=]\s*)["\'](?P<href>[^"\']*/product/[^"\']+)["\']'
+    else:
+        pattern = r'(?:href=|url["\']?\s*[:=]\s*)["\'](?P<href>[^"\']*/catalog/\d+/detail[^"\']*)["\']'
+    for match in re.finditer(pattern, html or "", flags=re.IGNORECASE):
+        href = _abs_url(seed_url, match.group("href"))
+        if href in seen or not _same_market_family(source, href):
+            continue
+        seen.add(href)
+        urls.append(href)
+        if len(urls) >= limit:
+            break
+    return urls
+
+
+def _cards_from_wb_body_text(text: str, html: str, seed: dict[str, Any], seed_url: str, limit: int = 3000) -> list[dict[str, Any]]:
+    brand = str(seed.get("brand") or "").strip()
+    brand_l = brand.lower()
+    lines = [re.sub(r"\s+", " ", line).strip() for line in (text or "").splitlines()]
+    lines = [line for line in lines if line]
+    urls = _product_urls_from_html("wb", html, seed_url, limit=limit)
+    out: list[dict[str, Any]] = []
+    title_indexes: list[int] = []
+    for idx, line in enumerate(lines):
+        low = line.lower()
+        if brand_l and brand_l not in low:
+            continue
+        if not any(x in low for x in ("аэрогр", "кофевар", "блендер", "печ", "шампур", "аксессуар", "форма", "решет", "корзин")):
+            continue
+        title_indexes.append(idx)
+    for card_idx, idx in enumerate(title_indexes[:limit]):
+        start = max(0, idx - 10)
+        end = min(len(lines), idx + 8)
+        block_lines = lines[start:end]
+        href = urls[card_idx] if card_idx < len(urls) else ""
+        if not href:
+            continue
+        title = lines[idx]
+        out.append(
+            {
+                "href": href,
+                "link_text": title,
+                "aria_label": title,
+                "image": "",
+                "image_alt": title,
+                "container_text": "\n".join(block_lines),
+                "html": "",
+                "extract_method": "body_text_wb_listing",
+            }
+        )
+    return out
 
 def _add_raw_cards(
     cards_by_url: dict[str, dict[str, Any]],
@@ -409,8 +503,13 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
 
     cards_by_url: dict[str, dict[str, Any]] = {}
     max_cards = int(disc.get("max_cards_per_seed") or 1200)
-    no_new_limit = int(cfg.get("stop_after_rounds_without_new") or 5)
-    max_rounds = int(cfg.get("max_scroll_rounds") or 55)
+    # Safe listing mode: one browser tab, no product-page fetch, no aggressive retries.
+    # Config may allow larger numbers, but the runtime clamps them to calm defaults.
+    no_new_limit = max(2, min(int(cfg.get("stop_after_rounds_without_new") or 4), 4))
+    max_rounds = max(5, min(int(cfg.get("max_scroll_rounds") or 30), 30))
+    wait_after_open_ms = max(int(cfg.get("wait_after_open_ms") or 3500), 3500)
+    scroll_wait_ms = max(int(cfg.get("scroll_wait_ms") or 1800), 1800)
+    scroll_step_px = max(700, min(int(cfg.get("scroll_step_px") or 1000), 1400))
     no_new = 0
     network_cards_total = 0
     dom_cards_total = 0
@@ -423,7 +522,6 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
             browser = p.chromium.launch(
                 headless=bool(cfg.get("headless", True)),
                 args=[
-                    "--disable-blink-features=AutomationControlled",
                     "--no-sandbox",
                     "--disable-dev-shm-usage",
                 ],
@@ -441,7 +539,6 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
                     "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
                 },
             )
-            context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
             page = context.new_page()
 
             def on_response(response: Any) -> None:
@@ -472,8 +569,9 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
                     raw_cards: list[dict[str, Any]] = []
                     for data in json_objects:
                         if source == "wb":
-                            raw_cards.extend(_extract_wb_api_products(data, url, max_cards))
-                        raw_cards.extend(_extract_product_links_from_json(source, data, url, max_cards))
+                            raw_cards.extend(_extract_wb_api_products(data, url, max_cards, str(seed.get("brand") or "")))
+                        else:
+                            raw_cards.extend(_extract_product_links_from_json(source, data, url, max_cards))
                     added = _add_raw_cards(cards_by_url, raw_cards, seed, source, url, max_cards)
                     network_cards_total += added
                 except Exception as exc:
@@ -482,7 +580,7 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
 
             page.on("response", on_response)
             page.goto(url, wait_until="domcontentloaded", timeout=int(cfg.get("goto_timeout_ms") or 60000))
-            page.wait_for_timeout(int(cfg.get("wait_after_open_ms") or 5000))
+            page.wait_for_timeout(wait_after_open_ms)
             try:
                 page.wait_for_load_state("networkidle", timeout=18000)
             except Exception:
@@ -493,10 +591,39 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
             except Exception:
                 pass
 
+            # If marketplace returns a block/captcha/access-limited page, do not keep scrolling
+            # or retrying. Save diagnostics and let reports/Telegram notify the user.
+            try:
+                initial_text = page.locator("body").inner_text(timeout=5000)
+            except Exception:
+                initial_text = ""
+            if _looks_blocked(str(report.get("page_title") or "") + "\n" + initial_text):
+                report["status"] = "blocked"
+                report["warnings"].append("seed_access_limited_or_captcha")
+                report["body_text_length"] = len(initial_text or "")
+                try:
+                    _write_debug(seed_key, "body.txt", (initial_text or "")[:120_000])
+                    _write_debug(seed_key, "page.html", page.content()[:1_500_000])
+                    page.screenshot(path=str((_debug_dir() or Path(".")) / f"{_slug(seed_key)}__screenshot.png"), full_page=True, timeout=15000)
+                except Exception:
+                    pass
+                try:
+                    browser.close()
+                except Exception:
+                    pass
+                report["cards_seen_raw"] = 0
+                report["cards_unique_url"] = 0
+                report["cards_from_dom"] = 0
+                report["cards_from_network"] = network_cards_total
+                report["cards_from_html"] = 0
+                report["network_json_seen"] = network_json_seen
+                report["network_urls_sample"] = network_urls[:25]
+                return [], report
+
             for round_idx in range(max_rounds + 1):
                 before = len(cards_by_url)
                 try:
-                    raw_cards = page.evaluate(_extract_script(), {"source": source})
+                    raw_cards = page.evaluate(_extract_script(), {"source": source, "brand": str(seed.get("brand") or "")})
                     dom_cards_total += _add_raw_cards(cards_by_url, raw_cards or [], seed, source, url, max_cards)
                 except Exception as exc:
                     msg = str(exc)
@@ -517,8 +644,9 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
                         for data in _json_objects_from_text(html, limit=10):
                             raw_cards = []
                             if source == "wb":
-                                raw_cards.extend(_extract_wb_api_products(data, url, max_cards))
-                            raw_cards.extend(_extract_product_links_from_json(source, data, url, max_cards))
+                                raw_cards.extend(_extract_wb_api_products(data, url, max_cards, str(seed.get("brand") or "")))
+                            else:
+                                raw_cards.extend(_extract_product_links_from_json(source, data, url, max_cards))
                             html_cards_total += _add_raw_cards(cards_by_url, raw_cards, seed, source, url, max_cards)
                 except Exception:
                     pass
@@ -531,7 +659,7 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
                 if len(cards_by_url) >= max_cards or no_new >= no_new_limit:
                     break
 
-                step = int(cfg.get("scroll_step_px") or 1200)
+                step = scroll_step_px
                 try:
                     page.evaluate("(step) => window.scrollBy(0, Math.max(window.innerHeight, step))", step)
                 except Exception:
@@ -539,7 +667,7 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
                         page.mouse.wheel(0, step)
                     except Exception:
                         pass
-                page.wait_for_timeout(int(cfg.get("scroll_wait_ms") or 1500))
+                page.wait_for_timeout(scroll_wait_ms)
 
             try:
                 html = page.content()
@@ -549,6 +677,9 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
                 except Exception:
                     text = re.sub(r"<[^>]+>", " ", html)
                 report["body_text_length"] = len(text or "")
+                if source == "wb":
+                    body_cards = _cards_from_wb_body_text(text or "", html or "", seed, url, max_cards)
+                    html_cards_total += _add_raw_cards(cards_by_url, body_cards, seed, source, url, max_cards)
                 _write_debug(seed_key, "page.html", html[:1_500_000])
                 _write_debug(seed_key, "body.txt", (text or "")[:120_000])
                 _write_debug(seed_key, "network_urls.txt", "\n".join(network_urls))
