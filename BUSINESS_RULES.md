@@ -1,4 +1,4 @@
-# Business rules: CS-Kaspi v6
+# Business rules: CS-Kaspi v6.1
 
 ## Official
 
@@ -56,3 +56,10 @@ Ozon/WB ETA -> Kaspi lead/preOrder без safety buffer
 - Карточки должны быть уникальными, честными и несливаемыми.
 - При отсутствии market variant товар снимается с продажи, но не удаляется.
 - Live-send включать только отдельным будущим патчем после approval, mapping и allowlist.
+
+## Input policy
+
+- Ручной market input не используется.
+- Ozon/WB данные собираются только скриптом из seed-ссылок `config/market_sources.yml`.
+- Official raw pages и market discovery результаты сохраняются только в `artifacts/`.
+- Существующие товары Kaspi позже должны приходить из API/state-sync, а не из ручной папки.

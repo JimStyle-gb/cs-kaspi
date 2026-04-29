@@ -1,0 +1,8 @@
+CS-Kaspi v6.1 zero-input seed-listing fresh repo
+
+Changes vs v6:
+- removed input/ directory completely
+- official downloaded pages now go to artifacts/raw/official/
+- Kaspi existing manual input disabled; future API/state sync will fill artifacts/state/kaspi_existing_products.json
+- README/PROJECT_CARD/BUSINESS_RULES updated
+- build_kaspi_match_template is reference-only and does not instruct copying files into input/

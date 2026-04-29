@@ -1,4 +1,4 @@
-# Project card: CS-Kaspi v6
+# Project card: CS-Kaspi v6.1
 
 ## Цель
 
@@ -48,3 +48,16 @@ kaspi_price_stock.xml
 kaspi_export_preview.csv/txt
 kaspi_delivery_summary.json
 ```
+
+## Важное уточнение v6.1
+
+Папка `input/` убрана из активной архитектуры.
+
+```text
+скрипт скачивает official -> artifacts/raw/official/
+скрипт парсит Ozon/WB listing -> artifacts/market_discovery/
+скрипт строит состояние -> artifacts/state/
+скрипт строит preview/exports -> artifacts/preview и artifacts/exports
+```
+
+Ручное заполнение Ozon/WB CSV не используется. Существующие товары Kaspi позже должны подтягиваться отдельным API/state-sync слоем, а не ручной папкой `input/`.
