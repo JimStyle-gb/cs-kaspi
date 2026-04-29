@@ -25,7 +25,7 @@ matching:
   exact_color_match_required: false
   exact_bundle_match_required: false
   allow_market_bundle_as_kaspi_variant: true
-  minimum_confidence_for_auto_market_record: 70
+  minimum_confidence_for_auto_market_record: 60
   confidence_for_review: 45
   rejected_below_confidence: 45
 
