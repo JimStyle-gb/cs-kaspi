@@ -1,0 +1,80 @@
+discovery:
+  enabled: true
+  mode: seed_listing_only
+  no_fallback_search: true
+  fetch_product_pages: false
+  fail_build_on_seed_error: false
+  max_cards_per_seed: 1200
+  expected_drop_warning_ratio: 0.45
+
+browser:
+  engine: chromium
+  headless: true
+  viewport_width: 1440
+  viewport_height: 1400
+  goto_timeout_ms: 60000
+  wait_after_open_ms: 3000
+  scroll_step_px: 1200
+  scroll_wait_ms: 1200
+  max_scroll_rounds: 55
+  stop_after_rounds_without_new: 5
+
+matching:
+  required_model_match: true
+  required_brand_match: true
+  exact_color_match_required: false
+  exact_bundle_match_required: false
+  allow_market_bundle_as_kaspi_variant: true
+  minimum_confidence_for_auto_market_record: 70
+  confidence_for_review: 45
+  rejected_below_confidence: 45
+
+pricing:
+  choose_lowest_price_inside_same_variant: true
+  markup_percent: 30
+
+lead_time:
+  copy_market_eta_without_extra_buffer: true
+  safety_buffer_days: 0
+  fallback_days_when_missing: 3
+
+seeds:
+  - seed_key: ozon_demiand_kitchen
+    source: ozon
+    supplier_key: demiand
+    brand: DEMIAND
+    enabled: true
+    expected_min_cards: 20
+    url: https://ozon.kz/category/tehnika-dlya-kuhni-10523/demiand-78481363/
+
+  - seed_key: wb_demiand_cooking
+    source: wb
+    supplier_key: demiand
+    brand: DEMIAND
+    enabled: true
+    expected_min_cards: 5
+    url: https://www.wildberries.ru/catalog/elektronika/tehnika-dlya-kuhni/prigotovlenie-blyud?page=1&sort=popular&fbrand=53038
+
+  - seed_key: wb_demiand_drinks
+    source: wb
+    supplier_key: demiand
+    brand: DEMIAND
+    enabled: true
+    expected_min_cards: 1
+    url: https://www.wildberries.ru/catalog/elektronika/tehnika-dlya-kuhni/prigotovlenie-napitkov?sort=popular&page=1&fbrand=53038
+
+  - seed_key: wb_demiand_blending
+    source: wb
+    supplier_key: demiand
+    brand: DEMIAND
+    enabled: true
+    expected_min_cards: 1
+    url: https://www.wildberries.ru/catalog/elektronika/tehnika-dlya-kuhni/izmelchenie-i-smeshivanie?sort=popular&page=1&fbrand=53038
+
+  - seed_key: wb_demiand_accessories
+    source: wb
+    supplier_key: demiand
+    brand: DEMIAND
+    enabled: true
+    expected_min_cards: 5
+    url: https://www.wildberries.ru/catalog/elektronika/tehnika-dlya-kuhni/aksessuary-dlya-kuhonnoy-tehniki?sort=popular&page=1&fbrand=53038
