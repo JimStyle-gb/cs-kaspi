@@ -83,24 +83,6 @@ def _same_market_family(source: str, href: str) -> bool:
         return True
 
 
-
-
-_BLOCK_MARKERS = (
-    "доступ ограничен",
-    "access denied",
-    "captcha",
-    "robot",
-    "robots",
-    "too many requests",
-    "request blocked",
-    "проверка безопасности",
-)
-
-
-def _looks_blocked(text: str) -> bool:
-    low = (text or "").lower()
-    return any(marker in low for marker in _BLOCK_MARKERS)
-
 def _first_url(value: Any, seed_url: str) -> str:
     if not isinstance(value, str):
         return ""
@@ -503,13 +485,8 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
 
     cards_by_url: dict[str, dict[str, Any]] = {}
     max_cards = int(disc.get("max_cards_per_seed") or 1200)
-    # Safe listing mode: one browser tab, no product-page fetch, no aggressive retries.
-    # Config may allow larger numbers, but the runtime clamps them to calm defaults.
-    no_new_limit = max(2, min(int(cfg.get("stop_after_rounds_without_new") or 4), 4))
-    max_rounds = max(5, min(int(cfg.get("max_scroll_rounds") or 30), 30))
-    wait_after_open_ms = max(int(cfg.get("wait_after_open_ms") or 3500), 3500)
-    scroll_wait_ms = max(int(cfg.get("scroll_wait_ms") or 1800), 1800)
-    scroll_step_px = max(700, min(int(cfg.get("scroll_step_px") or 1000), 1400))
+    no_new_limit = int(cfg.get("stop_after_rounds_without_new") or 5)
+    max_rounds = int(cfg.get("max_scroll_rounds") or 55)
     no_new = 0
     network_cards_total = 0
     dom_cards_total = 0
@@ -522,6 +499,7 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
             browser = p.chromium.launch(
                 headless=bool(cfg.get("headless", True)),
                 args=[
+                    "--disable-blink-features=AutomationControlled",
                     "--no-sandbox",
                     "--disable-dev-shm-usage",
                 ],
@@ -539,6 +517,7 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
                     "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
                 },
             )
+            context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
             page = context.new_page()
 
             def on_response(response: Any) -> None:
@@ -580,7 +559,7 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
 
             page.on("response", on_response)
             page.goto(url, wait_until="domcontentloaded", timeout=int(cfg.get("goto_timeout_ms") or 60000))
-            page.wait_for_timeout(wait_after_open_ms)
+            page.wait_for_timeout(int(cfg.get("wait_after_open_ms") or 5000))
             try:
                 page.wait_for_load_state("networkidle", timeout=18000)
             except Exception:
@@ -590,35 +569,6 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
                 report["page_title"] = page.title()
             except Exception:
                 pass
-
-            # If marketplace returns a block/captcha/access-limited page, do not keep scrolling
-            # or retrying. Save diagnostics and let reports/Telegram notify the user.
-            try:
-                initial_text = page.locator("body").inner_text(timeout=5000)
-            except Exception:
-                initial_text = ""
-            if _looks_blocked(str(report.get("page_title") or "") + "\n" + initial_text):
-                report["status"] = "blocked"
-                report["warnings"].append("seed_access_limited_or_captcha")
-                report["body_text_length"] = len(initial_text or "")
-                try:
-                    _write_debug(seed_key, "body.txt", (initial_text or "")[:120_000])
-                    _write_debug(seed_key, "page.html", page.content()[:1_500_000])
-                    page.screenshot(path=str((_debug_dir() or Path(".")) / f"{_slug(seed_key)}__screenshot.png"), full_page=True, timeout=15000)
-                except Exception:
-                    pass
-                try:
-                    browser.close()
-                except Exception:
-                    pass
-                report["cards_seen_raw"] = 0
-                report["cards_unique_url"] = 0
-                report["cards_from_dom"] = 0
-                report["cards_from_network"] = network_cards_total
-                report["cards_from_html"] = 0
-                report["network_json_seen"] = network_json_seen
-                report["network_urls_sample"] = network_urls[:25]
-                return [], report
 
             for round_idx in range(max_rounds + 1):
                 before = len(cards_by_url)
@@ -659,7 +609,7 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
                 if len(cards_by_url) >= max_cards or no_new >= no_new_limit:
                     break
 
-                step = scroll_step_px
+                step = int(cfg.get("scroll_step_px") or 1200)
                 try:
                     page.evaluate("(step) => window.scrollBy(0, Math.max(window.innerHeight, step))", step)
                 except Exception:
@@ -667,7 +617,7 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
                         page.mouse.wheel(0, step)
                     except Exception:
                         pass
-                page.wait_for_timeout(scroll_wait_ms)
+                page.wait_for_timeout(int(cfg.get("scroll_wait_ms") or 1500))
 
             try:
                 html = page.content()
