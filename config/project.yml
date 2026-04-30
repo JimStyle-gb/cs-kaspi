@@ -1,6 +1,6 @@
 project:
   name: CS-Kaspi
-  version: v6.1-zero-input-seed-listing
+  version: v7.0-wb-only-clean
   timezone: Asia/Almaty
   main_supplier: demiand
   mode: github_only

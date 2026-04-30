@@ -16,7 +16,6 @@ title_policy:
 price_policy:
   source: market_layer
   market_sources_for_price:
-    - ozon
     - wb
   forbidden_price_sources:
     - google
@@ -28,6 +27,8 @@ price_policy:
   fixed_add_kzt: 0
   min_margin_kzt: 0
   round_to_kzt: 100
+  rounding_mode: floor
+  note: После наценки 30% последние две цифры цены обрезаются до 00, например 199485 -> 199400.
 
 lead_time_policy:
   source: market_eta

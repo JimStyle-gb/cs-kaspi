@@ -1,6 +1,6 @@
 discovery:
   enabled: true
-  mode: seed_listing_only
+  mode: wb_seed_listing_only
   no_fallback_search: true
   fetch_product_pages: false
   fail_build_on_seed_error: false
@@ -32,6 +32,7 @@ matching:
 pricing:
   choose_lowest_price_inside_same_variant: true
   markup_percent: 30
+  rounding_mode: floor_to_100
 
 lead_time:
   copy_market_eta_without_extra_buffer: true
@@ -39,14 +40,6 @@ lead_time:
   fallback_days_when_missing: 3
 
 seeds:
-  - seed_key: ozon_demiand_kitchen
-    source: ozon
-    supplier_key: demiand
-    brand: DEMIAND
-    enabled: true
-    expected_min_cards: 20
-    url: https://ozon.kz/category/tehnika-dlya-kuhni-10523/demiand-78481363/
-
   - seed_key: wb_demiand_cooking
     source: wb
     supplier_key: demiand
