@@ -8,9 +8,12 @@ from scripts.cs_kaspi.core.text_utils import normalize_spaces
 from scripts.cs_kaspi.core.time_utils import ALMATY_TZ
 
 _PRICE_RE = re.compile(r"(?P<num>\d[\d\s\u2009\u202f]{2,})(?:\s?₸|\s?тг|\s?kzt)?", re.IGNORECASE)
+_CURRENCY_RE = re.compile(r"(?:₸|тг|kzt)", re.IGNORECASE)
 _MONTHLY_RE = re.compile(r"(?:мес|месяц|x\s*\d+|×\s*\d+)", re.IGNORECASE)
 _STOCK_RE = re.compile(r"(?P<n>\d+)\s*шт\s+остал(?:ось|ись)?|остал(?:ось|ись)?\s+(?P<n2>\d+)\s*шт", re.IGNORECASE)
 _DATE_RE = re.compile(r"(?P<day>\d{1,2})\s+(?P<month>января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)", re.IGNORECASE)
+_MODEL_CODE_RE = re.compile(r"\b(?:dk|дк)[\s\-]*\d{3,5}\b", re.IGNORECASE)
+_LETTER_RE = re.compile(r"[A-Za-zА-Яа-яЁё]")
 
 MONTHS = {
     "января": 1, "февраля": 2, "марта": 3, "апреля": 4, "мая": 5, "июня": 6,
@@ -34,24 +37,67 @@ def _num(text: str) -> int | None:
 def _int_or_none(value: Any) -> int | None:
     if isinstance(value, int) and value > 0:
         return value
+    if isinstance(value, float) and value > 0:
+        return int(value)
     if isinstance(value, str):
         return _num(value)
     return None
 
 
-def extract_price(text: str) -> int | None:
-    values: list[tuple[int, str]] = []
-    for match in _PRICE_RE.finditer(text or ""):
+def _line_price_candidate(line: str) -> int | None:
+    clean = normalize_spaces(line)
+    if not clean:
+        return None
+    lower = clean.lower()
+    if _MONTHLY_RE.search(lower):
+        return None
+
+    has_currency = bool(_CURRENCY_RE.search(clean))
+    # Important: titles contain model codes like DK-2600. Do not read them as prices.
+    # WB API prices often arrive as a separate numeric line without a currency sign.
+    if not has_currency:
+        if _LETTER_RE.search(clean):
+            return None
+        if not re.fullmatch(r"[\d\s\u2009\u202f]+", clean):
+            return None
+
+    values: list[int] = []
+    for match in _PRICE_RE.finditer(clean):
         value = _num(match.group("num"))
-        if not value or value < 1000:
-            continue
-        ctx = (text[max(0, match.start() - 18):match.end() + 24] or "").lower()
-        if _MONTHLY_RE.search(ctx):
-            continue
-        values.append((value, ctx))
+        if value and value >= 3000:
+            values.append(value)
     if not values:
         return None
-    return min(value for value, _ in values)
+    return min(values)
+
+
+def extract_price(text: str) -> int | None:
+    raw = text or ""
+    values: list[int] = []
+
+    # Prefer line-wise extraction to avoid gluing model code + price, e.g. "DK-2600\n11251".
+    for line in raw.splitlines():
+        candidate = _line_price_candidate(line)
+        if candidate:
+            values.append(candidate)
+
+    if values:
+        return min(values)
+
+    # Fallback for compact text: only values explicitly marked with currency.
+    for match in _PRICE_RE.finditer(raw):
+        value = _num(match.group("num"))
+        if not value or value < 3000:
+            continue
+        ctx = (raw[max(0, match.start() - 24):match.end() + 32] or "").lower()
+        if _MONTHLY_RE.search(ctx):
+            continue
+        if not _CURRENCY_RE.search(ctx):
+            continue
+        if _MODEL_CODE_RE.search(ctx):
+            continue
+        values.append(value)
+    return min(values) if values else None
 
 
 def extract_stock(text: str) -> int | None:
@@ -131,13 +177,14 @@ def extract_title(raw: dict[str, Any]) -> str:
 
 
 def normalize_card(raw: dict[str, Any]) -> dict[str, Any]:
-    text = normalize_spaces(str(raw.get("container_text") or ""))
+    raw_text = str(raw.get("container_text") or "")
+    text = normalize_spaces(raw_text)
     title = extract_title(raw)
     explicit_price = _int_or_none(raw.get("price"))
-    price = explicit_price or extract_price(text)
+    price = explicit_price or extract_price(raw_text)
     explicit_stock = _int_or_none(raw.get("stock"))
-    stock = explicit_stock if explicit_stock is not None else extract_stock(text)
-    eta_text = normalize_spaces(str(raw.get("eta_text") or "")) or extract_eta_text(text)
+    stock = explicit_stock if explicit_stock is not None else extract_stock(raw_text)
+    eta_text = normalize_spaces(str(raw.get("eta_text") or "")) or extract_eta_text(raw_text)
     url = raw.get("url") or raw.get("href")
     market_id = raw.get("market_id") or url
     available = raw.get("available")
