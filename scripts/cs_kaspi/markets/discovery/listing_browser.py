@@ -228,6 +228,8 @@ def _extract_wb_api_products(obj: Any, seed_url: str, limit: int = 3000, expecte
                         "href": href,
                         "link_text": name,
                         "aria_label": name,
+                        "brand": str(brand or ""),
+                        "price": price,
                         "image": _first_image_url(cur, seed_url),
                         "image_alt": name,
                         "container_text": "\n".join(x for x in text_lines if x),
