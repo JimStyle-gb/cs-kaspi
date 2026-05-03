@@ -113,6 +113,112 @@ def _looks_blocked(title: str | None, body_text: str | None, html: str | None = 
     return any(marker in blob for marker in _BLOCKED_MARKERS)
 
 
+def _detect_currency_label(*parts: Any) -> str:
+    blob = "\n".join(str(x or "") for x in parts).lower()
+    # KZT must win when both values are present in a hidden currency popup. Visible body text is passed first.
+    if "₸" in blob or " kzt" in blob or "тенге" in blob or "тг" in blob:
+        return "kzt"
+    if "₽" in blob or " rub" in blob or "руб" in blob or "российский рубль" in blob:
+        return "rub"
+    return "unknown"
+
+
+def _titles_compatible(existing: dict[str, Any], incoming: dict[str, Any]) -> bool:
+    """Allow body/HTML enrichment only when title order did not drift."""
+    old = _strip_html("\n".join(str(existing.get(k) or "") for k in ("title", "link_text", "aria_label", "image_alt", "container_text")))
+    new = _strip_html("\n".join(str(incoming.get(k) or "") for k in ("title", "link_text", "aria_label", "image_alt", "container_text")))
+    old_l = old.lower()
+    new_l = new.lower()
+    if not old_l or not new_l:
+        return True
+    old_ids = set(re.findall(r"\b(?:dk|aa|bl|kf)[\s\-/]*\d{2,5}\b", old_l, flags=re.IGNORECASE))
+    new_ids = set(re.findall(r"\b(?:dk|aa|bl|kf)[\s\-/]*\d{2,5}\b", new_l, flags=re.IGNORECASE))
+    if old_ids and new_ids and old_ids.isdisjoint(new_ids):
+        return False
+    important = (
+        "tison", "waison", "duos", "combo", "crispo", "leo", "luneo", "sanders", "tarvin",
+        "demixi", "sole", "решет", "решёт", "шампур", "блендер", "суповар", "аэрогр", "печ",
+        "корзин", "форма", "пергамент", "чаша",
+    )
+    old_hits = {x for x in important if x in old_l}
+    new_hits = {x for x in important if x in new_l}
+    if old_hits and new_hits and old_hits.isdisjoint(new_hits):
+        return False
+    return True
+
+
+def _try_force_kzt(page: Any, cfg: dict[str, Any], report: dict[str, Any]) -> None:
+    """Try to switch WB desktop page to Kazakhstan/KZT.
+
+    GitHub runners often open WB as San Jose/RUB. That price must never silently become Kaspi KZT.
+    This function is a soft UI-level attempt only; if WB keeps RUB, later validation marks records as RUB.
+    """
+    try:
+        text_before = page.locator("body").inner_text(timeout=3000)
+    except Exception:
+        text_before = ""
+    if _detect_currency_label(text_before) == "kzt":
+        report["wb_currency_switch"] = "already_kzt"
+        return
+    try:
+        report["wb_currency_switch"] = "attempted"
+        selectors = [
+            '[data-testid="currency-change-popup"]',
+            '[data-testid="selected-currency"]',
+            '.header__currency',
+        ]
+        for selector in selectors:
+            try:
+                page.locator(selector).first.click(timeout=2500)
+                page.wait_for_timeout(800)
+                break
+            except Exception:
+                try:
+                    page.locator(selector).first.hover(timeout=1800)
+                    page.wait_for_timeout(800)
+                    break
+                except Exception:
+                    pass
+        clicked = False
+        for selector in ('[data-testid="currency-kz"]', 'label[data-autotest-label="currency-kz"]', 'input[name="currency"][value="KZT"]'):
+            try:
+                page.locator(selector).first.click(timeout=3500, force=True)
+                clicked = True
+                break
+            except Exception:
+                pass
+        if not clicked:
+            page.evaluate(
+                """() => {
+                    const el = document.querySelector('[data-testid="currency-kz"], label[data-autotest-label="currency-kz"], input[name="currency"][value="KZT"]');
+                    if (!el) return false;
+                    el.click();
+                    el.dispatchEvent(new Event('change', {bubbles: true}));
+                    return true;
+                }"""
+            )
+        page.wait_for_timeout(int(cfg.get("currency_switch_wait_ms") or 5000))
+        try:
+            page.wait_for_load_state("networkidle", timeout=12000)
+        except Exception:
+            pass
+        try:
+            text_after = page.locator("body").inner_text(timeout=3000)
+        except Exception:
+            text_after = ""
+        after_currency = _detect_currency_label(text_after)
+        report["wb_currency_after_switch"] = after_currency
+        if after_currency != "kzt":
+            try:
+                page.reload(wait_until="domcontentloaded", timeout=int(cfg.get("goto_timeout_ms") or 60000))
+                page.wait_for_timeout(int(cfg.get("wait_after_open_ms") or 5000))
+            except Exception:
+                pass
+    except Exception as exc:
+        report["wb_currency_switch"] = "failed"
+        report["warnings"].append(f"wb_kzt_currency_switch_failed: {exc}")
+
+
 def _first_image_url(obj: Any, seed_url: str, limit: int = 8000) -> str:
     stack: list[Any] = [obj]
     seen = 0
@@ -411,12 +517,14 @@ def _cards_from_wb_body_text(text: str, html: str, seed: dict[str, Any], seed_ur
         out.append(
             {
                 "href": href,
+                "title": title,
                 "link_text": title,
                 "aria_label": title,
                 "brand": brand,
                 "image": "",
                 "image_alt": title,
                 "container_text": "\n".join(block_lines),
+                "price_currency": _detect_currency_label("\n".join(block_lines)).upper() if _detect_currency_label("\n".join(block_lines)) in ("kzt", "rub") else None,
                 "html": "",
                 "extract_method": "body_text_wb_listing",
             }
@@ -427,7 +535,7 @@ def _cards_from_wb_body_text(text: str, html: str, seed: dict[str, Any], seed_ur
 def _merge_card(existing: dict[str, Any], incoming: dict[str, Any]) -> None:
     existing_text = str(existing.get("container_text") or "")
     incoming_text = str(incoming.get("container_text") or "")
-    for key in ("market_id", "brand", "price", "old_price", "stock", "available", "image", "image_alt", "link_text", "aria_label", "eta_text"):
+    for key in ("market_id", "brand", "price", "old_price", "stock", "available", "image", "image_alt", "link_text", "aria_label", "eta_text", "price_currency"):
         if existing.get(key) in (None, "", 0) and incoming.get(key) not in (None, ""):
             existing[key] = incoming.get(key)
     if incoming_text and incoming_text not in existing_text:
@@ -456,7 +564,11 @@ def _add_raw_cards(
             cards_by_url[href] = raw
             added += 1
         else:
-            _merge_card(cards_by_url[href], raw)
+            if _titles_compatible(cards_by_url[href], raw):
+                _merge_card(cards_by_url[href], raw)
+            elif len(str(raw.get("container_text") or "")) > len(str(cards_by_url[href].get("container_text") or "")):
+                raw["merge_warning"] = "same_url_title_mismatch_replaced_by_richer_card"
+                cards_by_url[href] = raw
         if len(cards_by_url) >= max_cards:
             break
     return added
@@ -501,6 +613,8 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
     network_json_seen = 0
     no_new = 0
     blocked_detected = False
+    last_body_text = ""
+    last_page_html = ""
 
     if not url or source != "wb":
         report["status"] = "skipped"
@@ -574,6 +688,8 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
                 report["page_title"] = page.title()
             except Exception:
                 pass
+
+            _try_force_kzt(page, cfg, report)
 
             try:
                 first_html = page.content()
@@ -651,10 +767,13 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
                     text = page.locator("body").inner_text(timeout=5000)
                 except Exception:
                     text = _strip_html(final_html)
+                last_body_text = text or ""
+                last_page_html = final_html or ""
                 report["body_text_length"] = len(text or "")
                 blocked_detected = blocked_detected or _looks_blocked(report.get("page_title"), text, final_html)
-                # Do not map body-text titles to URLs by order: WB lazy listings can reorder cards,
-                # and that corrupts product-title/product-url pairs. Exact HTML fragments by href are safe.
+                # Body text contains visible WB price currency and delivery date. Use it only as guarded enrichment.
+                body_cards = _cards_from_wb_body_text(text or "", final_html or "", seed, url, max_cards)
+                html_cards_total += _add_raw_cards(cards_by_url, body_cards, seed, url, max_cards)
                 html_cards_total += _add_raw_cards(cards_by_url, _cards_from_html_regex(final_html, url, max_cards, str(seed.get("brand") or "")), seed, url, max_cards)
                 _write_debug(seed_key, "page.html", final_html[:1_500_000])
                 _write_debug(seed_key, "body.txt", (text or "")[:120_000])
@@ -692,14 +811,15 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
     expected_min = int(seed.get("expected_min_cards") or 0)
     page_currency = "unknown"
     try:
-        debug_text = "\n".join(str(card.get("container_text") or "") for card in cards_by_url.values())
-        if "₸" in debug_text or "тг" in debug_text.lower() or "kzt" in debug_text.lower():
-            page_currency = "kzt"
-        elif "₽" in debug_text or "руб" in debug_text.lower() or "rub" in debug_text.lower():
-            page_currency = "rub"
+        card_text = "\n".join(str(card.get("container_text") or "") for card in cards_by_url.values())
+        page_currency = _detect_currency_label(last_body_text, card_text, last_page_html[:3000])
     except Exception:
         page_currency = "unknown"
     report["price_currency_detected"] = page_currency
+    if page_currency in ("rub", "kzt"):
+        for card in cards_by_url.values():
+            if card.get("price") not in (None, "", 0) and not card.get("price_currency"):
+                card["price_currency"] = page_currency.upper()
     if page_currency == "rub":
         report["warnings"].append("wb_price_currency_rub_detected_expected_kzt")
     if expected_min and len(cards_by_url) < expected_min:
@@ -708,7 +828,9 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
         report["warnings"].append("blocked_page_needs_manual_check_or_retry")
     if not cards_by_url and report.get("body_text_length", 0) < 1000:
         report["warnings"].append("page_body_too_small_or_blocked")
-    if cards_by_url:
+    if cards_by_url and page_currency == "rub":
+        report["status"] = "wrong_currency"
+    elif cards_by_url:
         report["status"] = "ok"
     elif blocked_detected:
         report["status"] = "blocked"
