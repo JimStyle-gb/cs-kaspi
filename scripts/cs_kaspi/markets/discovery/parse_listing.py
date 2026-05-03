@@ -199,7 +199,8 @@ def normalize_card(raw: dict[str, Any]) -> dict[str, Any]:
     raw_text = html.unescape(str(raw.get("container_text") or ""))
     text = _clean_text(raw_text)
     title = extract_title(raw)
-    text_currency = detect_currency(raw_text)
+    raw_currency = str(raw.get("price_currency") or "").upper() or None
+    text_currency = raw_currency or detect_currency(raw_text)
     explicit_price = _int_or_none(raw.get("price"))
 
     # If exact card HTML gives KZT, prefer it over WB network numeric price.
