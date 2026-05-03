@@ -20,6 +20,11 @@ browser:
   scroll_wait_ms: 1500
   max_scroll_rounds: 60
   stop_after_rounds_without_new: 8
+  delivery_city: Алматы
+  delivery_popup_wait_ms: 1500
+  delivery_search_wait_ms: 2500
+  delivery_apply_wait_ms: 3500
+  currency_switch_wait_ms: 5000
 
 matching:
   required_model_match: false
