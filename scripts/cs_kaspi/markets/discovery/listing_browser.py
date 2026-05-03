@@ -177,109 +177,27 @@ def _body_text(page: Any, timeout: int = 3000) -> str:
 
 
 def _try_force_almaty_delivery(page: Any, cfg: dict[str, Any], report: dict[str, Any]) -> None:
-    """Set WB delivery region to Almaty/Kazakhstan via UI when possible.
+    """Mark Almaty intent without typing into WB search boxes.
 
-    Browser geolocation alone is not enough on WB: GitHub runner can still be treated as San Jose/RUB.
-    We therefore also try the visible delivery-city control and verify that the page shows Almaty.
+    Earlier versions tried to select Almaty via visible WB controls. On GitHub runner WB can expose
+    the global search input instead of the delivery popup; typing "Алматы" there changes the category
+    page into a search page and destroys the seed result. For this WB-only pipeline we keep Almaty at
+    browser/context level (locale, timezone, geolocation, localStorage) and use KZT validation below.
     """
     city = str(cfg.get("delivery_city") or "Алматы").strip() or "Алматы"
     city_l = city.lower()
     try:
         before = _body_text(page, timeout=3000)
         report["wb_delivery_city_before"] = "almaty" if city_l in before.lower() else "not_almaty"
-        if city_l in before.lower() and _detect_currency_label(before) == "kzt":
-            report["wb_delivery_switch"] = "already_almaty_kzt"
-            return
-
-        report["wb_delivery_switch"] = "attempted"
-        opened = _click_first_visible(
-            page,
-            [
-                '[data-testid="geo-delivery-points-popup-open"]',
-                '[data-testid="geo-delivery-points-popup-open-button"]',
-                '.j-geocity-link',
-                '.j-delivery-address',
-                'button[aria-label="Адрес доставки"]',
-            ],
-            timeout=3500,
-        )
-        if not opened:
-            report["warnings"].append("wb_almaty_delivery_open_failed")
-            return
-
-        page.wait_for_timeout(int(cfg.get("delivery_popup_wait_ms") or 1500))
-
-        filled = False
-        input_selectors = [
-            'input[placeholder*="Введите"]',
-            'input[placeholder*="адрес"]',
-            'input[placeholder*="насел"]',
-            'input[type="search"]',
-            'input[type="text"]',
-            'textarea',
-        ]
-        for selector in input_selectors:
-            try:
-                loc = page.locator(selector).first
-                loc.fill(city, timeout=2500)
-                filled = True
-                break
-            except Exception:
-                pass
-        if filled:
-            page.wait_for_timeout(int(cfg.get("delivery_search_wait_ms") or 2500))
-            try:
-                page.keyboard.press("Enter")
-                page.wait_for_timeout(900)
-            except Exception:
-                pass
-
-        clicked_city = False
-        city_selectors = [
-            f'text="{city}"',
-            f'button:has-text("{city}")',
-            f'div:has-text("{city}")',
-            f'li:has-text("{city}")',
-            f'a:has-text("{city}")',
-        ]
-        for selector in city_selectors:
-            try:
-                page.locator(selector).first.click(timeout=3500, force=True)
-                clicked_city = True
-                page.wait_for_timeout(1200)
-                break
-            except Exception:
-                pass
-        if not clicked_city and not filled:
-            report["warnings"].append("wb_almaty_delivery_city_select_failed")
-
-        # Some WB popups require an explicit confirm/save button after choosing a city/PVZ.
-        for selector in (
-            'button:has-text("Выбрать")',
-            'button:has-text("Подтвердить")',
-            'button:has-text("Сохранить")',
-            'button:has-text("Да")',
-            'button:has-text("Готово")',
-        ):
-            try:
-                page.locator(selector).first.click(timeout=1800, force=True)
-                page.wait_for_timeout(1000)
-                break
-            except Exception:
-                pass
-
-        page.wait_for_timeout(int(cfg.get("delivery_apply_wait_ms") or 3500))
-        try:
-            page.reload(wait_until="domcontentloaded", timeout=int(cfg.get("goto_timeout_ms") or 60000))
-            page.wait_for_timeout(int(cfg.get("wait_after_open_ms") or 5000))
-        except Exception:
-            pass
-        after = _body_text(page, timeout=4000)
-        report["wb_delivery_city_after"] = "almaty" if city_l in after.lower() else "not_almaty"
-        report["wb_currency_after_delivery_switch"] = _detect_currency_label(after)
-    except Exception as exc:
-        report["wb_delivery_switch"] = "failed"
-        report["warnings"].append(f"wb_almaty_delivery_switch_failed: {exc}")
+    except Exception:
+        report["wb_delivery_city_before"] = "unknown"
+    report["wb_delivery_switch"] = "skipped_safe_no_ui_typing"
+    report["wb_delivery_city_after"] = report.get("wb_delivery_city_before")
+    try:
+        current = _body_text(page, timeout=2500)
+        report["wb_currency_after_delivery_switch"] = _detect_currency_label(current)
+    except Exception:
+        report["wb_currency_after_delivery_switch"] = "unknown"
 
 
 def _force_wb_currency_in_request_url(url: str) -> str:
@@ -731,6 +649,64 @@ def _safe_response_text(response: Any, max_chars: int = 2_000_000) -> str:
     return ""
 
 
+
+def _norm_visible_line(value: Any) -> str:
+    return _SPACE_RE.sub(" ", html_lib.unescape(str(value or "")).replace("\xa0", " ")).strip()
+
+
+def _title_key(value: Any) -> str:
+    text = _norm_visible_line(value).lower().replace("ё", "е")
+    text = re.sub(r"\bdemiand\b|демианд", " ", text, flags=re.IGNORECASE)
+    text = re.sub(r"[^a-z0-9а-я]+", " ", text, flags=re.IGNORECASE)
+    return _SPACE_RE.sub(" ", text).strip()
+
+
+def _same_body_title(line: str, title: str) -> bool:
+    line_key = _title_key(line)
+    title_key = _title_key(title)
+    if not line_key or not title_key:
+        return False
+    return line_key == title_key or title_key in line_key or line_key in title_key
+
+
+def _body_block_for_title(body_text: str, title: str) -> str:
+    title_key = _title_key(title)
+    if not body_text or not title_key:
+        return ""
+    lines = [_norm_visible_line(line) for line in str(body_text or "").splitlines()]
+    lines = [line for line in lines if line]
+    found_idx: int | None = None
+    for idx, line in enumerate(lines):
+        if _same_body_title(line, title):
+            found_idx = idx
+            break
+    if found_idx is None:
+        return ""
+    start = max(0, found_idx - 10)
+    end = min(len(lines), found_idx + 8)
+    return "\n".join(lines[start:end])
+
+
+def _enrich_cards_from_page_body(cards_by_url: dict[str, dict[str, Any]], body_text: str, page_currency: str) -> None:
+    """Use visible WB body text only as enrichment for cards already found by URL/API.
+
+    We do not create product URLs from body order. We only append a block when the visible title itself
+    matches the already-known WB card title. This gives ETA/visible KZT context without mixing neighbour
+    cards or changing product identity.
+    """
+    if not cards_by_url:
+        return
+    currency = "KZT" if page_currency == "kzt" else "RUB" if page_currency == "rub" else None
+    for card in cards_by_url.values():
+        title = str(card.get("title") or card.get("link_text") or card.get("aria_label") or "")
+        block = _body_block_for_title(body_text, title)
+        if block:
+            existing = str(card.get("container_text") or "")
+            if block not in existing:
+                card["container_text"] = (existing + "\n" + block).strip()
+        if currency and card.get("price") not in (None, "", 0) and not card.get("price_currency"):
+            card["price_currency"] = currency
+
 def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     source = str(seed.get("source") or "").strip().lower()
     seed_key = seed.get("seed_key") or "wb_seed"
@@ -990,9 +966,7 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
     except Exception:
         page_currency = "unknown"
     report["price_currency_detected"] = page_currency
-    # Keep page currency in the report only. Do not stamp every network/API price as KZT: WB API
-    # numeric values may still be base RUB-like values even when the visible page shows KZT.
-    # A product becomes Kaspi-ready only when parse_listing extracts a KZT price from its own card text.
+    _enrich_cards_from_page_body(cards_by_url, last_body_text, page_currency)
     if page_currency == "rub":
         report["warnings"].append("wb_price_currency_rub_detected_expected_kzt")
     if expected_min and len(cards_by_url) < expected_min:
