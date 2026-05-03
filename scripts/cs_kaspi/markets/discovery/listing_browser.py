@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html as html_lib
 import json
 import re
 from pathlib import Path
@@ -15,9 +16,19 @@ _TEXT_KEYS = (
     "title", "name", "text", "label", "caption", "subtitle", "brand", "brandName", "seller",
     "delivery", "price", "finalPrice", "cardPrice", "salePrice", "marketingLabel", "description",
 )
-_URL_KEYS = ("href", "url", "link", "action", "deeplink", "shareUrl", "productUrl", "cardUrl", "urlModel")
 _IMAGE_KEYS = ("image", "imageUrl", "img", "src", "cover", "picture", "thumbnail", "preview")
-_WB_TYPE_HINTS = ("аэрогр", "кофевар", "блендер", "печ", "шампур", "аксессуар", "форма", "решет", "корзин")
+_WB_TYPE_HINTS = (
+    "аэрогр", "кофевар", "блендер", "суповар", "печ", "шампур", "аксессуар", "форма",
+    "решет", "решёт", "корзин", "чаша", "пергамент", "стаканчик",
+)
+_BLOCKED_MARKERS = (
+    "почти готово", "подозрительная активность", "captcha", "капча", "captcha-support@rwb.ru",
+    "доступ ограничен", "пожалуйста, подождите", "verify", "robot",
+)
+_HREF_RE = re.compile(r'href=["\'](?P<href>[^"\']{0,500}/catalog/\d+/detail[^"\']{0,220})["\']', re.IGNORECASE)
+_ANY_URL_RE = re.compile(r'["\'](?P<href>(?:https?:)?//[^"\']{0,160}/catalog/\d+/detail[^"\']{0,220}|/catalog/\d+/detail[^"\']{0,220})["\']', re.IGNORECASE)
+_TAG_RE = re.compile(r"<[^>]+>")
+_SPACE_RE = re.compile(r"\s+")
 
 
 def _slug(value: Any) -> str:
@@ -50,11 +61,19 @@ def _write_debug(seed_key: Any, name: str, data: str | bytes) -> None:
 
 
 def _abs_url(seed_url: str, href: str) -> str:
-    href = (href or "").strip()
+    href = html_lib.unescape((href or "").strip())
     if href.startswith("//"):
         scheme = urlparse(seed_url).scheme or "https"
         return f"{scheme}:{href}"
     return urljoin(seed_url, href)
+
+
+def _clean_url(url: str) -> str:
+    if not url:
+        return ""
+    # WB product identity is the catalog id. targetUrl/query noise should not split one product.
+    match = re.search(r"(https?://[^/]+/catalog/\d+/detail\.aspx|/catalog/\d+/detail\.aspx)", url, flags=re.IGNORECASE)
+    return match.group(1) if match else url.split("#", 1)[0]
 
 
 def _is_wb_product_url(href: str) -> bool:
@@ -83,28 +102,15 @@ def _first_url(value: Any, seed_url: str) -> str:
     return ""
 
 
-def _compact_json_text(obj: Any, limit: int = 2400) -> str:
-    parts: list[str] = []
-    stack: list[Any] = [obj]
-    seen = 0
-    while stack and seen < 8000 and len("\n".join(parts)) < limit:
-        seen += 1
-        cur = stack.pop()
-        if isinstance(cur, dict):
-            for key, value in cur.items():
-                if isinstance(value, str) and (key in _TEXT_KEYS or len(value) >= 8):
-                    clean = re.sub(r"\s+", " ", value).strip()
-                    if clean and clean not in parts:
-                        parts.append(clean)
-                elif isinstance(value, (dict, list)):
-                    stack.append(value)
-        elif isinstance(cur, list):
-            stack.extend(cur[:120])
-        elif isinstance(cur, str):
-            clean = re.sub(r"\s+", " ", cur).strip()
-            if len(clean) >= 8 and clean not in parts:
-                parts.append(clean)
-    return "\n".join(parts)[:limit]
+def _strip_html(fragment: str) -> str:
+    text = _TAG_RE.sub("\n", fragment or "")
+    text = html_lib.unescape(text.replace("\xa0", " "))
+    return _SPACE_RE.sub(" ", text).strip()
+
+
+def _looks_blocked(title: str | None, body_text: str | None, html: str | None = None) -> bool:
+    blob = " ".join([str(title or ""), str(body_text or ""), str(html or "")[:5000]]).lower()
+    return any(marker in blob for marker in _BLOCKED_MARKERS)
 
 
 def _first_image_url(obj: Any, seed_url: str, limit: int = 8000) -> str:
@@ -251,33 +257,60 @@ def _json_objects_from_text(text: str, limit: int = 30) -> list[Any]:
     return out
 
 
-def _cards_from_html_regex(html: str, seed_url: str, limit: int = 3000) -> list[dict[str, Any]]:
+def _snippet_around(html: str, start: int, end: int) -> str:
+    left_candidates = [
+        html.rfind('<article', 0, start),
+        html.rfind('<div class="product-card', 0, start),
+        html.rfind("<div class='product-card", 0, start),
+        html.rfind('<div class="product-card__wrapper', 0, start),
+    ]
+    left = max(left_candidates)
+    if left < 0 or start - left > 7000:
+        left = max(0, start - 1800)
+    right_markers = [
+        html.find('<article', end),
+        html.find('<div class="product-card', end),
+        html.find("<div class='product-card", end),
+    ]
+    right_markers = [x for x in right_markers if x > end]
+    right = min(right_markers) if right_markers else min(len(html), end + 2200)
+    return html[left:right]
+
+
+def _cards_from_html_regex(html: str, seed_url: str, limit: int = 3000, expected_brand: str = "") -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
-    pattern = r'(?:href=|url["\']?\s*[:=]\s*)["\'](?P<href>[^"\']*/catalog/\d+/detail[^"\']*)["\']'
-    for match in re.finditer(pattern, html or "", flags=re.IGNORECASE):
+    for regex in (_HREF_RE, _ANY_URL_RE):
+        for match in regex.finditer(html or ""):
+            if len(out) >= limit:
+                break
+            href = _clean_url(_abs_url(seed_url, match.group("href")))
+            if href in seen or not _is_wb_product_url(href) or not _same_wb_family(href):
+                continue
+            fragment = _snippet_around(html, match.start(), match.end())
+            text = _strip_html(fragment)
+            low = text.lower()
+            brand_l = str(expected_brand or "").lower().strip()
+            if brand_l and brand_l not in low and "demiand" not in low:
+                continue
+            if not any(hint in low for hint in _WB_TYPE_HINTS) and "demiand" not in low:
+                continue
+            seen.add(href)
+            out.append(
+                {
+                    "href": href,
+                    "link_text": "",
+                    "aria_label": "",
+                    "brand": expected_brand if (expected_brand and expected_brand.lower() in low) else "",
+                    "image": "",
+                    "image_alt": "",
+                    "container_text": text,
+                    "html": fragment[:5000],
+                    "extract_method": "html_regex_wb",
+                }
+            )
         if len(out) >= limit:
             break
-        href = _abs_url(seed_url, match.group("href"))
-        if href in seen or not _same_wb_family(href):
-            continue
-        seen.add(href)
-        start = max(0, match.start() - 1300)
-        end = min(len(html), match.end() + 1300)
-        snippet = re.sub(r"<[^>]+>", " ", html[start:end])
-        snippet = re.sub(r"\s+", " ", snippet).strip()
-        out.append(
-            {
-                "href": href,
-                "link_text": "",
-                "aria_label": "",
-                "image": "",
-                "image_alt": "",
-                "container_text": snippet,
-                "html": html[start:end][:3000],
-                "extract_method": "html_regex_wb",
-            }
-        )
     return out
 
 
@@ -287,7 +320,8 @@ def _extract_script() -> str:
       const brandText = String(brand || '').trim().toLowerCase();
       const isBrandCard = (text) => {
         if (!brandText) return true;
-        return String(text || '').toLowerCase().includes(brandText);
+        const low = String(text || '').toLowerCase();
+        return low.includes(brandText) || low.includes('demiand') || low.includes('демианд');
       };
       const pickContainer = (a) => {
         const preferred = a.closest('[class*=product-card], [class*=goods-tile], [data-nm-id], article, li');
@@ -322,10 +356,11 @@ def _extract_script() -> str:
           href,
           link_text: (a.innerText || '').trim(),
           aria_label: aria.trim(),
+          brand: brandText ? brandText.toUpperCase() : '',
           image: imgSrc,
           image_alt: imgAlt.trim(),
           container_text: containerText,
-          html: box ? box.outerHTML.slice(0, 3000) : '',
+          html: box ? box.outerHTML.slice(0, 5000) : '',
           extract_method: 'dom_anchor_wb'
         });
       }
@@ -337,36 +372,36 @@ def _extract_script() -> str:
 def _product_urls_from_html(html: str, seed_url: str, limit: int = 3000) -> list[str]:
     urls: list[str] = []
     seen: set[str] = set()
-    pattern = r'(?:href=|url["\']?\s*[:=]\s*)["\'](?P<href>[^"\']*/catalog/\d+/detail[^"\']*)["\']'
-    for match in re.finditer(pattern, html or "", flags=re.IGNORECASE):
-        href = _abs_url(seed_url, match.group("href"))
-        if href in seen or not _same_wb_family(href):
-            continue
-        seen.add(href)
-        urls.append(href)
-        if len(urls) >= limit:
-            break
+    for regex in (_HREF_RE, _ANY_URL_RE):
+        for match in regex.finditer(html or ""):
+            href = _clean_url(_abs_url(seed_url, match.group("href")))
+            if href in seen or not _is_wb_product_url(href) or not _same_wb_family(href):
+                continue
+            seen.add(href)
+            urls.append(href)
+            if len(urls) >= limit:
+                return urls
     return urls
 
 
 def _cards_from_wb_body_text(text: str, html: str, seed: dict[str, Any], seed_url: str, limit: int = 3000) -> list[dict[str, Any]]:
     brand = str(seed.get("brand") or "").strip()
     brand_l = brand.lower()
-    lines = [re.sub(r"\s+", " ", line).strip() for line in (text or "").splitlines()]
+    lines = [_SPACE_RE.sub(" ", html_lib.unescape(line).replace("\xa0", " ")).strip() for line in (text or "").splitlines()]
     lines = [line for line in lines if line]
     urls = _product_urls_from_html(html, seed_url, limit=limit)
     out: list[dict[str, Any]] = []
     title_indexes: list[int] = []
     for idx, line in enumerate(lines):
         low = line.lower()
-        if brand_l and brand_l not in low:
+        if brand_l and brand_l not in low and "demiand" not in low:
             continue
         if not any(x in low for x in _WB_TYPE_HINTS):
             continue
         title_indexes.append(idx)
     for card_idx, idx in enumerate(title_indexes[:limit]):
         start = max(0, idx - 10)
-        end = min(len(lines), idx + 8)
+        end = min(len(lines), idx + 10)
         block_lines = lines[start:end]
         href = urls[card_idx] if card_idx < len(urls) else ""
         if not href:
@@ -377,6 +412,7 @@ def _cards_from_wb_body_text(text: str, html: str, seed: dict[str, Any], seed_ur
                 "href": href,
                 "link_text": title,
                 "aria_label": title,
+                "brand": brand,
                 "image": "",
                 "image_alt": title,
                 "container_text": "\n".join(block_lines),
@@ -385,6 +421,21 @@ def _cards_from_wb_body_text(text: str, html: str, seed: dict[str, Any], seed_ur
             }
         )
     return out
+
+
+def _merge_card(existing: dict[str, Any], incoming: dict[str, Any]) -> None:
+    existing_text = str(existing.get("container_text") or "")
+    incoming_text = str(incoming.get("container_text") or "")
+    for key in ("market_id", "brand", "price", "old_price", "stock", "available", "image", "image_alt", "link_text", "aria_label", "eta_text"):
+        if existing.get(key) in (None, "", 0) and incoming.get(key) not in (None, ""):
+            existing[key] = incoming.get(key)
+    if incoming_text and incoming_text not in existing_text:
+        existing["container_text"] = (existing_text + "\n" + incoming_text).strip()
+    methods = [x for x in str(existing.get("extract_method") or "").split("+") if x]
+    method = str(incoming.get("extract_method") or "")
+    if method and method not in methods:
+        methods.append(method)
+        existing["extract_method"] = "+".join(methods)
 
 
 def _add_raw_cards(
@@ -396,13 +447,15 @@ def _add_raw_cards(
 ) -> int:
     added = 0
     for raw in raw_cards or []:
-        href = _abs_url(seed_url, str(raw.get("href") or ""))
+        href = _clean_url(_abs_url(seed_url, str(raw.get("href") or "")))
         if not href or not _is_wb_product_url(href) or not _same_wb_family(href):
             continue
+        raw.update({"href": href, "seed_key": seed.get("seed_key"), "source": "wb", "seed_url": seed_url})
         if href not in cards_by_url:
-            raw.update({"href": href, "seed_key": seed.get("seed_key"), "source": "wb", "seed_url": seed_url})
             cards_by_url[href] = raw
             added += 1
+        else:
+            _merge_card(cards_by_url[href], raw)
         if len(cards_by_url) >= max_cards:
             break
     return added
@@ -446,6 +499,7 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
     html_cards_total = 0
     network_json_seen = 0
     no_new = 0
+    blocked_detected = False
 
     if not url or source != "wb":
         report["status"] = "skipped"
@@ -518,6 +572,26 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
             except Exception:
                 pass
 
+            try:
+                first_html = page.content()
+                try:
+                    first_text = page.locator("body").inner_text(timeout=3000)
+                except Exception:
+                    first_text = _strip_html(first_html)
+                if _looks_blocked(report.get("page_title"), first_text, first_html):
+                    blocked_detected = True
+                    report["warnings"].append("wb_blocked_or_antibot_page_detected")
+                    # One soft reload/wait is allowed for slow WB pages. No aggressive bypass.
+                    try:
+                        page.wait_for_timeout(int(cfg.get("blocked_soft_wait_ms") or 9000))
+                        page.reload(wait_until="domcontentloaded", timeout=int(cfg.get("goto_timeout_ms") or 60000))
+                        page.wait_for_timeout(int(cfg.get("wait_after_open_ms") or 5000))
+                        report["page_title_after_soft_reload"] = page.title()
+                    except Exception as exc:
+                        report["warnings"].append(f"blocked_soft_reload_failed: {exc}")
+            except Exception:
+                pass
+
             for round_idx in range(max_rounds + 1):
                 before = len(cards_by_url)
                 try:
@@ -536,10 +610,10 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
                         report["warnings"].append(f"dom_extract_warning: {msg}")
 
                 try:
-                    html = page.content()
+                    page_html = page.content()
                     if round_idx in {0, max_rounds} or len(cards_by_url) == 0:
-                        html_cards_total += _add_raw_cards(cards_by_url, _cards_from_html_regex(html, url, max_cards), seed, url, max_cards)
-                        for data in _json_objects_from_text(html, limit=10):
+                        html_cards_total += _add_raw_cards(cards_by_url, _cards_from_html_regex(page_html, url, max_cards, str(seed.get("brand") or "")), seed, url, max_cards)
+                        for data in _json_objects_from_text(page_html, limit=10):
                             html_cards_total += _add_raw_cards(
                                 cards_by_url,
                                 _extract_wb_api_products(data, url, max_cards, str(seed.get("brand") or "")),
@@ -569,15 +643,17 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
                 page.wait_for_timeout(int(cfg.get("scroll_wait_ms") or 1500))
 
             try:
-                html = page.content()
+                final_html = page.content()
                 try:
                     text = page.locator("body").inner_text(timeout=5000)
                 except Exception:
-                    text = re.sub(r"<[^>]+>", " ", html)
+                    text = _strip_html(final_html)
                 report["body_text_length"] = len(text or "")
-                body_cards = _cards_from_wb_body_text(text or "", html or "", seed, url, max_cards)
+                blocked_detected = blocked_detected or _looks_blocked(report.get("page_title"), text, final_html)
+                body_cards = _cards_from_wb_body_text(text or "", final_html or "", seed, url, max_cards)
                 html_cards_total += _add_raw_cards(cards_by_url, body_cards, seed, url, max_cards)
-                _write_debug(seed_key, "page.html", html[:1_500_000])
+                html_cards_total += _add_raw_cards(cards_by_url, _cards_from_html_regex(final_html, url, max_cards, str(seed.get("brand") or "")), seed, url, max_cards)
+                _write_debug(seed_key, "page.html", final_html[:1_500_000])
                 _write_debug(seed_key, "body.txt", (text or "")[:120_000])
                 _write_debug(seed_key, "network_urls.txt", "\n".join(network_urls))
                 try:
@@ -613,7 +689,14 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
     expected_min = int(seed.get("expected_min_cards") or 0)
     if expected_min and len(cards_by_url) < expected_min:
         report["warnings"].append(f"cards_below_expected_min: expected_min={expected_min}, found={len(cards_by_url)}")
+    if blocked_detected:
+        report["warnings"].append("blocked_page_needs_manual_check_or_retry")
     if not cards_by_url and report.get("body_text_length", 0) < 1000:
         report["warnings"].append("page_body_too_small_or_blocked")
-    report["status"] = "ok" if cards_by_url else "empty"
+    if cards_by_url:
+        report["status"] = "ok"
+    elif blocked_detected:
+        report["status"] = "blocked"
+    else:
+        report["status"] = "empty"
     return list(cards_by_url.values()), report
