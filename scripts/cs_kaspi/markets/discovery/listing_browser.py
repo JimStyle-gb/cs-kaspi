@@ -210,6 +210,7 @@ def _extract_wb_api_products(obj: Any, seed_url: str, limit: int = 3000, expecte
                     {
                         "href": href,
                         "market_id": str(product_id),
+                        "title": f"{brand} / {name}" if brand else str(name),
                         "link_text": str(name),
                         "aria_label": str(name),
                         "brand": str(brand or ""),
@@ -516,14 +517,16 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
             )
             context = browser.new_context(
                 viewport={"width": int(cfg.get("viewport_width") or 1440), "height": int(cfg.get("viewport_height") or 1400)},
-                locale="ru-RU",
+                locale="ru-KZ",
                 timezone_id="Asia/Almaty",
+                geolocation={"latitude": 43.238949, "longitude": 76.889709},
+                permissions=["geolocation"],
                 user_agent=(
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                     "AppleWebKit/537.36 (KHTML, like Gecko) "
                     "Chrome/124.0.0.0 Safari/537.36"
                 ),
-                extra_http_headers={"Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7"},
+                extra_http_headers={"Accept-Language": "ru-KZ,ru;q=0.9,en-US;q=0.7,en;q=0.6"},
             )
             context.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined});")
             page = context.new_page()
@@ -650,8 +653,8 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
                     text = _strip_html(final_html)
                 report["body_text_length"] = len(text or "")
                 blocked_detected = blocked_detected or _looks_blocked(report.get("page_title"), text, final_html)
-                body_cards = _cards_from_wb_body_text(text or "", final_html or "", seed, url, max_cards)
-                html_cards_total += _add_raw_cards(cards_by_url, body_cards, seed, url, max_cards)
+                # Do not map body-text titles to URLs by order: WB lazy listings can reorder cards,
+                # and that corrupts product-title/product-url pairs. Exact HTML fragments by href are safe.
                 html_cards_total += _add_raw_cards(cards_by_url, _cards_from_html_regex(final_html, url, max_cards, str(seed.get("brand") or "")), seed, url, max_cards)
                 _write_debug(seed_key, "page.html", final_html[:1_500_000])
                 _write_debug(seed_key, "body.txt", (text or "")[:120_000])
@@ -687,6 +690,18 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
     report["cards_seen_raw"] = len(cards_by_url)
     report["cards_unique_url"] = len(cards_by_url)
     expected_min = int(seed.get("expected_min_cards") or 0)
+    page_currency = "unknown"
+    try:
+        debug_text = "\n".join(str(card.get("container_text") or "") for card in cards_by_url.values())
+        if "₸" in debug_text or "тг" in debug_text.lower() or "kzt" in debug_text.lower():
+            page_currency = "kzt"
+        elif "₽" in debug_text or "руб" in debug_text.lower() or "rub" in debug_text.lower():
+            page_currency = "rub"
+    except Exception:
+        page_currency = "unknown"
+    report["price_currency_detected"] = page_currency
+    if page_currency == "rub":
+        report["warnings"].append("wb_price_currency_rub_detected_expected_kzt")
     if expected_min and len(cards_by_url) < expected_min:
         report["warnings"].append(f"cards_below_expected_min: expected_min={expected_min}, found={len(cards_by_url)}")
     if blocked_detected:
