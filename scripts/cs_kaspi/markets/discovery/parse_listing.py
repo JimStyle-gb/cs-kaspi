@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import re
 from datetime import datetime
 from typing import Any
@@ -12,7 +13,7 @@ _CURRENCY_RE = re.compile(r"(?:₸|тг|kzt)", re.IGNORECASE)
 _MONTHLY_RE = re.compile(r"(?:мес|месяц|x\s*\d+|×\s*\d+)", re.IGNORECASE)
 _STOCK_RE = re.compile(r"(?P<n>\d+)\s*шт\s+остал(?:ось|ись)?|остал(?:ось|ись)?\s+(?P<n2>\d+)\s*шт", re.IGNORECASE)
 _DATE_RE = re.compile(r"(?P<day>\d{1,2})\s+(?P<month>января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)", re.IGNORECASE)
-_MODEL_CODE_RE = re.compile(r"\b(?:dk|дк)[\s\-]*\d{3,5}\b", re.IGNORECASE)
+_MODEL_CODE_RE = re.compile(r"\b(?:dk|дк|aa|bl)[\s\-/]*\d{2,5}\b", re.IGNORECASE)
 _LETTER_RE = re.compile(r"[A-Za-zА-Яа-яЁё]")
 
 MONTHS = {
@@ -22,8 +23,13 @@ MONTHS = {
 
 NOISE_LINES = (
     "в корзину", "добавить", "рассрочка", "мес", "скидка", "осталось", "остались", "доставка",
-    "завтра", "сегодня", "послезавтра", "₸", "тг", "отзыв", "рейтинг",
+    "завтра", "сегодня", "послезавтра", "₸", "тг", "отзыв", "рейтинг", "распродажа",
+    "хорошая цена", "с wb кошельком", "wb кошелек", "кошельком",
 )
+
+
+def _clean_text(value: Any) -> str:
+    return normalize_spaces(html.unescape(str(value or "").replace("\xa0", " ")))
 
 
 def _num(text: str) -> int | None:
@@ -45,7 +51,7 @@ def _int_or_none(value: Any) -> int | None:
 
 
 def _line_price_candidate(line: str) -> int | None:
-    clean = normalize_spaces(line)
+    clean = _clean_text(line)
     if not clean:
         return None
     lower = clean.lower()
@@ -72,7 +78,7 @@ def _line_price_candidate(line: str) -> int | None:
 
 
 def extract_price(text: str) -> int | None:
-    raw = text or ""
+    raw = html.unescape(text or "")
     values: list[int] = []
 
     # Prefer line-wise extraction to avoid gluing model code + price, e.g. "DK-2600\n11251".
@@ -101,20 +107,20 @@ def extract_price(text: str) -> int | None:
 
 
 def extract_stock(text: str) -> int | None:
-    match = _STOCK_RE.search(text or "")
+    match = _STOCK_RE.search(html.unescape(text or ""))
     if not match:
         return None
     return int(match.group("n") or match.group("n2"))
 
 
 def extract_eta_text(text: str) -> str | None:
-    lower = (text or "").lower()
+    lower = html.unescape(text or "").lower()
     if "сегодня" in lower:
         return "сегодня"
-    if "завтра" in lower:
-        return "завтра"
     if "послезавтра" in lower:
         return "послезавтра"
+    if "завтра" in lower:
+        return "завтра"
     match = _DATE_RE.search(lower)
     if match:
         return f"{match.group('day')} {match.group('month')}"
@@ -144,31 +150,31 @@ def eta_to_days(eta_text: str | None) -> int | None:
 
 
 def _line_score(line: str) -> int:
-    clean = normalize_spaces(line)
+    clean = _clean_text(line)
     lower = clean.lower()
     if len(clean) < 10:
         return -10
     if any(x in lower for x in NOISE_LINES):
         return -20
     score = len(clean)
-    if "demiand" in lower:
+    if "demiand" in lower or "демианд" in lower:
         score += 70
-    if any(x in lower for x in ("аэрогр", "кофевар", "блендер", "печ", "шампур", "аксессуар")):
+    if any(x in lower for x in ("аэрогр", "кофевар", "блендер", "суповар", "печ", "шампур", "аксессуар", "форма", "решет", "решёт", "корзин")):
         score += 30
     return score
 
 
 def extract_title(raw: dict[str, Any]) -> str:
-    explicit = normalize_spaces(str(raw.get("title") or ""))
+    explicit = _clean_text(raw.get("title"))
     if explicit:
         return explicit
     candidates: list[str] = []
     for key in ("aria_label", "image_alt", "link_text"):
-        value = normalize_spaces(str(raw.get(key) or ""))
+        value = _clean_text(raw.get(key))
         if value:
             candidates.append(value)
     for line in str(raw.get("container_text") or "").splitlines():
-        clean = normalize_spaces(line)
+        clean = _clean_text(line)
         if clean:
             candidates.append(clean)
     if not candidates:
@@ -177,14 +183,14 @@ def extract_title(raw: dict[str, Any]) -> str:
 
 
 def normalize_card(raw: dict[str, Any]) -> dict[str, Any]:
-    raw_text = str(raw.get("container_text") or "")
-    text = normalize_spaces(raw_text)
+    raw_text = html.unescape(str(raw.get("container_text") or ""))
+    text = _clean_text(raw_text)
     title = extract_title(raw)
     explicit_price = _int_or_none(raw.get("price"))
     price = explicit_price or extract_price(raw_text)
     explicit_stock = _int_or_none(raw.get("stock"))
     stock = explicit_stock if explicit_stock is not None else extract_stock(raw_text)
-    eta_text = normalize_spaces(str(raw.get("eta_text") or "")) or extract_eta_text(raw_text)
+    eta_text = _clean_text(raw.get("eta_text")) or extract_eta_text(raw_text)
     url = raw.get("url") or raw.get("href")
     market_id = raw.get("market_id") or url
     available = raw.get("available")
@@ -195,6 +201,7 @@ def normalize_card(raw: dict[str, Any]) -> dict[str, Any]:
         "seed_key": raw.get("seed_key"),
         "seed_url": raw.get("seed_url"),
         "market_id": market_id,
+        "brand": _clean_text(raw.get("brand")),
         "title": title,
         "url": url,
         "image": raw.get("image"),
