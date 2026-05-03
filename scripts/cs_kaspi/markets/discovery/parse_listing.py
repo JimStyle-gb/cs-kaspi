@@ -8,12 +8,13 @@ from typing import Any
 from scripts.cs_kaspi.core.text_utils import normalize_spaces
 from scripts.cs_kaspi.core.time_utils import ALMATY_TZ
 
-_PRICE_RE = re.compile(r"(?P<num>\d[\d\s\u2009\u202f]{2,})(?:\s?₸|\s?тг|\s?kzt)?", re.IGNORECASE)
-_CURRENCY_RE = re.compile(r"(?:₸|тг|kzt)", re.IGNORECASE)
+_PRICE_RE = re.compile(r"(?P<num>\d[\d\s\u2009\u202f]{2,})(?:\s?₸|\s?тг|\s?kzt|\s?₽|\s?руб)?", re.IGNORECASE)
+_KZT_RE = re.compile(r"(?:₸|тг|kzt)", re.IGNORECASE)
+_RUB_RE = re.compile(r"(?:₽|руб|rub)", re.IGNORECASE)
 _MONTHLY_RE = re.compile(r"(?:мес|месяц|x\s*\d+|×\s*\d+)", re.IGNORECASE)
 _STOCK_RE = re.compile(r"(?P<n>\d+)\s*шт\s+остал(?:ось|ись)?|остал(?:ось|ись)?\s+(?P<n2>\d+)\s*шт", re.IGNORECASE)
 _DATE_RE = re.compile(r"(?P<day>\d{1,2})\s+(?P<month>января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)", re.IGNORECASE)
-_MODEL_CODE_RE = re.compile(r"\b(?:dk|дк|aa|bl)[\s\-/]*\d{2,5}\b", re.IGNORECASE)
+_MODEL_CODE_RE = re.compile(r"\b(?:dk|дк|aa|bl|kf)[\s\-/]*\d{2,5}\b", re.IGNORECASE)
 _LETTER_RE = re.compile(r"[A-Za-zА-Яа-яЁё]")
 
 MONTHS = {
@@ -23,7 +24,7 @@ MONTHS = {
 
 NOISE_LINES = (
     "в корзину", "добавить", "рассрочка", "мес", "скидка", "осталось", "остались", "доставка",
-    "завтра", "сегодня", "послезавтра", "₸", "тг", "отзыв", "рейтинг", "распродажа",
+    "завтра", "сегодня", "послезавтра", "отзыв", "рейтинг", "распродажа",
     "хорошая цена", "с wb кошельком", "wb кошелек", "кошельком",
 )
 
@@ -50,7 +51,16 @@ def _int_or_none(value: Any) -> int | None:
     return None
 
 
-def _line_price_candidate(line: str) -> int | None:
+def detect_currency(text: str) -> str | None:
+    raw = html.unescape(text or "")
+    if _KZT_RE.search(raw):
+        return "KZT"
+    if _RUB_RE.search(raw):
+        return "RUB"
+    return None
+
+
+def _line_price_candidate(line: str, *, required_currency: str | None = None) -> int | None:
     clean = _clean_text(line)
     if not clean:
         return None
@@ -58,10 +68,13 @@ def _line_price_candidate(line: str) -> int | None:
     if _MONTHLY_RE.search(lower):
         return None
 
-    has_currency = bool(_CURRENCY_RE.search(clean))
-    # Important: titles contain model codes like DK-2600. Do not read them as prices.
-    # WB API prices often arrive as a separate numeric line without a currency sign.
-    if not has_currency:
+    if required_currency == "KZT" and not _KZT_RE.search(clean):
+        return None
+    if required_currency == "RUB" and not _RUB_RE.search(clean):
+        return None
+
+    has_any_currency = bool(_KZT_RE.search(clean) or _RUB_RE.search(clean))
+    if not has_any_currency:
         if _LETTER_RE.search(clean):
             return None
         if not re.fullmatch(r"[\d\s\u2009\u202f]+", clean):
@@ -70,35 +83,37 @@ def _line_price_candidate(line: str) -> int | None:
     values: list[int] = []
     for match in _PRICE_RE.finditer(clean):
         value = _num(match.group("num"))
-        if value and value >= 3000:
+        if value and value >= 300:
             values.append(value)
     if not values:
         return None
     return min(values)
 
 
-def extract_price(text: str) -> int | None:
+def extract_price(text: str, *, required_currency: str | None = None) -> int | None:
     raw = html.unescape(text or "")
     values: list[int] = []
 
-    # Prefer line-wise extraction to avoid gluing model code + price, e.g. "DK-2600\n11251".
     for line in raw.splitlines():
-        candidate = _line_price_candidate(line)
+        candidate = _line_price_candidate(line, required_currency=required_currency)
         if candidate:
             values.append(candidate)
 
     if values:
         return min(values)
 
-    # Fallback for compact text: only values explicitly marked with currency.
     for match in _PRICE_RE.finditer(raw):
         value = _num(match.group("num"))
-        if not value or value < 3000:
+        if not value or value < 300:
             continue
         ctx = (raw[max(0, match.start() - 24):match.end() + 32] or "").lower()
         if _MONTHLY_RE.search(ctx):
             continue
-        if not _CURRENCY_RE.search(ctx):
+        if required_currency == "KZT" and not _KZT_RE.search(ctx):
+            continue
+        if required_currency == "RUB" and not _RUB_RE.search(ctx):
+            continue
+        if required_currency is None and not (_KZT_RE.search(ctx) or _RUB_RE.search(ctx)):
             continue
         if _MODEL_CODE_RE.search(ctx):
             continue
@@ -165,14 +180,12 @@ def _line_score(line: str) -> int:
 
 
 def extract_title(raw: dict[str, Any]) -> str:
-    explicit = _clean_text(raw.get("title"))
-    if explicit:
-        return explicit
-    candidates: list[str] = []
-    for key in ("aria_label", "image_alt", "link_text"):
+    # Explicit source title/link text must win. Container text can contain neighbouring WB cards.
+    for key in ("title", "link_text", "aria_label", "image_alt"):
         value = _clean_text(raw.get(key))
         if value:
-            candidates.append(value)
+            return value
+    candidates: list[str] = []
     for line in str(raw.get("container_text") or "").splitlines():
         clean = _clean_text(line)
         if clean:
@@ -186,8 +199,23 @@ def normalize_card(raw: dict[str, Any]) -> dict[str, Any]:
     raw_text = html.unescape(str(raw.get("container_text") or ""))
     text = _clean_text(raw_text)
     title = extract_title(raw)
+    text_currency = detect_currency(raw_text)
     explicit_price = _int_or_none(raw.get("price"))
-    price = explicit_price or extract_price(raw_text)
+
+    # If exact card HTML gives KZT, prefer it over WB network numeric price.
+    # GitHub can see RUB because of runner geo; RUB must not silently become Kaspi KZT.
+    kzt_price = extract_price(raw_text, required_currency="KZT") if text_currency == "KZT" else None
+    rub_price = extract_price(raw_text, required_currency="RUB") if text_currency == "RUB" else None
+    if kzt_price:
+        price = kzt_price
+        price_currency = "KZT"
+    elif text_currency == "RUB":
+        price = rub_price or explicit_price
+        price_currency = "RUB"
+    else:
+        price = explicit_price or extract_price(raw_text)
+        price_currency = None
+
     explicit_stock = _int_or_none(raw.get("stock"))
     stock = explicit_stock if explicit_stock is not None else extract_stock(raw_text)
     eta_text = _clean_text(raw.get("eta_text")) or extract_eta_text(raw_text)
@@ -206,6 +234,7 @@ def normalize_card(raw: dict[str, Any]) -> dict[str, Any]:
         "url": url,
         "image": raw.get("image"),
         "price": price,
+        "price_currency": price_currency,
         "old_price": _int_or_none(raw.get("old_price")),
         "available": bool(available),
         "stock": stock if stock is not None else (1 if price else 0),
