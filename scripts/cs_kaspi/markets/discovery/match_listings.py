@@ -116,11 +116,14 @@ def _brand_ok(item: dict[str, Any], match_text: str) -> bool:
 
 
 def _market_accept_confidence(confidence: int, item: dict[str, Any], match_text: str) -> tuple[int, str]:
-    if str(item.get("price_currency") or "").upper() == "RUB":
+    currency = str(item.get("price_currency") or "").upper()
+    if currency == "RUB":
         return min(confidence, 40), "wrong_wb_currency_rub_needs_kzt"
+    if item.get("price") and currency != "KZT":
+        return min(confidence, 55), "wb_price_currency_unknown_needs_kzt"
     if confidence >= int(matching_cfg().get("minimum_confidence_for_auto_market_record") or 65):
         return confidence, "seed_listing_model_or_alias_match"
-    if _brand_ok(item, match_text) and item.get("price"):
+    if _brand_ok(item, match_text) and item.get("price") and currency == "KZT":
         return max(confidence, 65), "wb_brand_sellable_variant"
     return confidence, "seed_listing_soft_match"
 
@@ -187,10 +190,10 @@ def split_by_status(scored: list[dict[str, Any]]) -> dict[str, list[dict[str, An
         conf = int(row.get("match_confidence") or 0)
         has_price = row.get("market_price") not in (None, "", 0)
         is_available = row.get("market_available") is not False
-        is_kzt_or_unknown = str(row.get("market_price_currency") or "").upper() != "RUB"
-        if conf >= minimum and has_price and is_available and is_kzt_or_unknown:
+        is_kzt = str(row.get("market_price_currency") or "").upper() == "KZT"
+        if conf >= minimum and has_price and is_available and is_kzt:
             accepted.append(row)
-        elif conf >= review_min or not is_kzt_or_unknown:
+        elif conf >= review_min or not is_kzt:
             review.append(row)
         else:
             rejected.append(row)
