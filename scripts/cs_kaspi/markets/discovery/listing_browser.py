@@ -5,7 +5,7 @@ import json
 import re
 from pathlib import Path
 from typing import Any
-from urllib.parse import urljoin, urlparse
+from urllib.parse import parse_qsl, urlencode, urljoin, urlparse, urlunparse
 
 from scripts.cs_kaspi.core.paths import path_from_config
 
@@ -211,6 +211,51 @@ def _force_wb_currency_in_request_url(url: str) -> str:
     new = re.sub(r"(?i)([?&](?:curr|currency)=)rub\b", r"\1kzt", url)
     new = re.sub(r"(?i)([?&](?:curr|currency)=)RUB\b", r"\1KZT", new)
     return new
+
+
+
+def _force_wb_almaty_geo_url(url: str) -> str:
+    """Rewrite WB geo endpoint from default Moscow/Tver to Almaty.
+
+    WB can ignore Playwright geolocation and still ask its internal geo endpoint for Moscow
+    coordinates. We do not type into the visible search/address UI because that previously changed
+    category pages into a search for "Алматы". This rewrite only changes WB's own geo request
+    parameters before it reaches the server.
+    """
+    if not url or "/__internal/user-geo-data/get-geo-info" not in url:
+        return url
+    parsed = urlparse(url)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+    query.update(
+        {
+            "currency": "kzt",
+            "latitude": "43.238949",
+            "longitude": "76.889709",
+            "address": "Алматы",
+            "locale": "ru",
+            "currentLocale": "ru",
+            "newClient": "true",
+        }
+    )
+    return urlunparse(parsed._replace(query=urlencode(query, doseq=True)))
+
+
+def _delivery_region_from_text(text: str) -> str:
+    low = str(text or "").lower()
+    if "алматы" in low or "almaty" in low:
+        return "almaty"
+    if "тверской" in low or "москва" in low or "сан-хосе" in low or "san jose" in low:
+        return "not_almaty"
+    return "unknown"
+
+
+def _stamp_currency_only(cards_by_url: dict[str, dict[str, Any]], page_currency: str) -> None:
+    currency = "KZT" if page_currency == "kzt" else "RUB" if page_currency == "rub" else None
+    if not currency:
+        return
+    for card in cards_by_url.values():
+        if card.get("price") not in (None, "", 0) and not card.get("price_currency"):
+            card["price_currency"] = currency
 
 def _try_force_kzt(page: Any, cfg: dict[str, Any], report: dict[str, Any]) -> None:
     """Try to switch WB desktop page to Kazakhstan/KZT.
@@ -793,6 +838,25 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
             except Exception:
                 pass
 
+            def _route_wb_geo_and_currency(route: Any) -> None:
+                try:
+                    req_url = route.request.url
+                    new_url = _force_wb_almaty_geo_url(_force_wb_currency_in_request_url(req_url))
+                    if new_url != req_url:
+                        route.continue_(url=new_url)
+                    else:
+                        route.continue_()
+                except Exception:
+                    try:
+                        route.continue_()
+                    except Exception:
+                        pass
+
+            try:
+                context.route("**/*", _route_wb_geo_and_currency)
+            except Exception:
+                pass
+
             page = context.new_page()
 
             def on_response(response: Any) -> None:
@@ -966,7 +1030,14 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
     except Exception:
         page_currency = "unknown"
     report["price_currency_detected"] = page_currency
-    _enrich_cards_from_page_body(cards_by_url, last_body_text, page_currency)
+    delivery_region = _delivery_region_from_text(last_body_text)
+    report["delivery_region_detected"] = delivery_region
+    if delivery_region == "almaty":
+        _enrich_cards_from_page_body(cards_by_url, last_body_text, page_currency)
+    else:
+        _stamp_currency_only(cards_by_url, page_currency)
+        if cards_by_url:
+            report["warnings"].append("wb_delivery_region_not_almaty_eta_not_trusted")
     if page_currency == "rub":
         report["warnings"].append("wb_price_currency_rub_detected_expected_kzt")
     if expected_min and len(cards_by_url) < expected_min:
