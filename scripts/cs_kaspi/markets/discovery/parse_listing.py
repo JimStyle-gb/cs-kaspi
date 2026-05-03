@@ -316,7 +316,12 @@ def normalize_card(raw: dict[str, Any]) -> dict[str, Any]:
     # full WB container because it can contain neighbouring cards.
     kzt_price = _extract_scoped_price(raw_text, title, "KZT") if text_currency == "KZT" else None
     rub_price = _extract_scoped_price(raw_text, title, "RUB") if text_currency == "RUB" else None
-    if kzt_price:
+    if text_currency == "KZT" and explicit_price:
+        # For WB API cards the numeric price can be trusted only after listing_browser stamped the card
+        # with page-level KZT. The card text itself may not contain the ₸ symbol.
+        price = explicit_price
+        price_currency = "KZT"
+    elif kzt_price:
         price = kzt_price
         price_currency = "KZT"
     elif text_currency == "RUB":
