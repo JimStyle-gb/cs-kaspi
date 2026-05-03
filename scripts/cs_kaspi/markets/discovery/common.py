@@ -91,15 +91,35 @@ def category_score(title: str, category_key: str | None) -> int:
     return 10 if any(norm_text(hint) in text for hint in hints) else 0
 
 
+def _canonical_variant_text(title: str | None) -> str:
+    text = norm_text(title or "")
+    # Canonicalize WB title noise/typos without hiding real sellable differences such as color, kit or accessory type.
+    replacements = {
+        "wi fi": "wifi",
+        "wi-fi": "wifi",
+        "тэнaми": "тенами",
+        "тэнaм": "тенами",
+        "тэнами": "тенами",
+        "тэнам": "тенами",
+        "тенaми": "тенами",
+        "14 5л": "14 5 л",
+        "7 в 1": "7 1",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    text = normalize_spaces(text)
+    return text
+
+
 def title_fingerprint(title: str | None) -> str:
     """Stable fingerprint for one sellable WB variant.
 
-    We deliberately keep the market title in the signature: different colors,
-    комплектации, наборы and accessories must become separate Kaspi candidates.
-    Only exact/near-exact same WB variants collapse later by lowest price.
+    Different colors, комплект, наборы and accessories must remain separate Kaspi candidates.
+    Pure WB spelling noise/typos must collapse, for example "2 тэнaм" and "2 тэнaми".
     """
-    text = norm_text(title or "")
-    words = [w for w in text.split() if w not in {"demiand", "демианд", "с", "и", "для", "в", "на"}]
+    text = _canonical_variant_text(title)
+    stop_words = {"demiand", "демианд", "с", "и", "для", "в", "на"}
+    words = [w for w in text.split() if w not in stop_words]
     return slugify_ascii(" ".join(words))[:72] or "variant"
 
 
