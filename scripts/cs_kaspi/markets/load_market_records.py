@@ -61,6 +61,7 @@ def _normalize_record(raw: dict[str, Any], *, path: Path, row_number: int) -> di
         "url": clean(raw.get("url")),
         "image": clean(raw.get("image")),
         "price": parse_int(raw.get("price")),
+        "price_currency": clean(raw.get("price_currency")),
         "old_price": parse_int(raw.get("old_price")),
         "available": parse_bool(raw.get("available")),
         "stock": parse_int(raw.get("stock")),
@@ -72,6 +73,7 @@ def _normalize_record(raw: dict[str, Any], *, path: Path, row_number: int) -> di
         "rating": clean(raw.get("rating")),
         "reviews_count": parse_int(raw.get("reviews_count")),
         "matched_by": clean(raw.get("matched_by")),
+        "official_match_status": clean(raw.get("official_match_status")),
         "match_confidence": parse_int(raw.get("match_confidence")),
         "raw": raw,
     }
