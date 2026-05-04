@@ -19,7 +19,7 @@ _TEXT_KEYS = (
 _IMAGE_KEYS = ("image", "imageUrl", "img", "src", "cover", "picture", "thumbnail", "preview")
 _WB_TYPE_HINTS = (
     "аэрогр", "кофевар", "блендер", "суповар", "печ", "шампур", "аксессуар", "форма",
-    "решет", "решёт", "корзин", "чаша", "пергамент", "стаканчик",
+    "решет", "решёт", "корзин", "чаша", "пергамент", "стакан", "стаканчик", "бумажн", "комплект",
 )
 _BLOCKED_MARKERS = (
     "почти готово", "подозрительная активность", "captcha", "капча", "captcha-support@rwb.ru",
@@ -474,60 +474,105 @@ def _json_objects_from_text(text: str, limit: int = 30) -> list[Any]:
     return out
 
 
+def _product_card_fragments(html: str) -> list[str]:
+    """Split static WB HTML into individual product-card fragments.
+
+    Saved WB pages often keep product data in rendered HTML. The old snippet picker sometimes grabbed
+    only product-card__wrapper and missed title/price, so visible products such as paper cups were lost.
+    """
+    text = html or ""
+    starts = [m.start() for m in re.finditer(r'<(?:article|div)[^>]+class=["\'][^"\']*product-card\b[^"\']*["\'][^>]*>', text, flags=re.IGNORECASE)]
+    # Prefer outer cards with data-nm-id when available.
+    outer = [pos for pos in starts if re.search(r'data-nm-id=["\']\d+', text[pos:pos + 700], flags=re.IGNORECASE)]
+    starts = outer or starts
+    fragments: list[str] = []
+    for idx, pos in enumerate(starts):
+        end = starts[idx + 1] if idx + 1 < len(starts) else min(len(text), pos + 16000)
+        frag = text[pos:end]
+        if "/catalog/" in frag and "/detail" in frag:
+            fragments.append(frag[:16000])
+    return fragments
+
+
 def _snippet_around(html: str, start: int, end: int) -> str:
+    # Fallback for non-standard HTML: take a wide window but stop before the next outer product card.
     left_candidates = [
+        html.rfind('<div class="product-card ', 0, start),
+        html.rfind("<div class='product-card ", 0, start),
         html.rfind('<article', 0, start),
-        html.rfind('<div class="product-card', 0, start),
-        html.rfind("<div class='product-card", 0, start),
-        html.rfind('<div class="product-card__wrapper', 0, start),
     ]
     left = max(left_candidates)
-    if left < 0 or start - left > 7000:
-        left = max(0, start - 1800)
+    if left < 0 or start - left > 12000:
+        left = max(0, start - 3500)
     right_markers = [
+        html.find('<div class="product-card ', end),
+        html.find("<div class='product-card ", end),
         html.find('<article', end),
-        html.find('<div class="product-card', end),
-        html.find("<div class='product-card", end),
     ]
     right_markers = [x for x in right_markers if x > end]
-    right = min(right_markers) if right_markers else min(len(html), end + 2200)
+    right = min(right_markers) if right_markers else min(len(html), end + 6500)
     return html[left:right]
+
+
+def _extract_attr(fragment: str, name: str) -> str:
+    match = re.search(rf'{name}=["\'](?P<value>.*?)["\']', fragment or "", flags=re.IGNORECASE | re.DOTALL)
+    return html_lib.unescape(match.group("value")) if match else ""
+
+
+def _extract_first_img(fragment: str, seed_url: str) -> str:
+    for attr in ("src", "data-src", "data-original", "data-lazy"):
+        match = re.search(rf'<img[^>]+{attr}=["\'](?P<url>.*?)["\']', fragment or "", flags=re.IGNORECASE | re.DOTALL)
+        if match:
+            return _abs_url(seed_url, html_lib.unescape(match.group("url")))
+    return ""
 
 
 def _cards_from_html_regex(html: str, seed_url: str, limit: int = 3000, expected_brand: str = "") -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     seen: set[str] = set()
-    for regex in (_HREF_RE, _ANY_URL_RE):
-        for match in regex.finditer(html or ""):
-            if len(out) >= limit:
-                break
-            href = _clean_url(_abs_url(seed_url, match.group("href")))
-            if href in seen or not _is_wb_product_url(href) or not _same_wb_family(href):
-                continue
-            fragment = _snippet_around(html, match.start(), match.end())
-            text = _strip_html(fragment)
-            low = text.lower()
-            brand_l = str(expected_brand or "").lower().strip()
-            if brand_l and brand_l not in low and "demiand" not in low:
-                continue
-            if not any(hint in low for hint in _WB_TYPE_HINTS) and "demiand" not in low:
-                continue
-            seen.add(href)
-            out.append(
-                {
-                    "href": href,
-                    "link_text": "",
-                    "aria_label": "",
-                    "brand": expected_brand if (expected_brand and expected_brand.lower() in low) else "",
-                    "image": "",
-                    "image_alt": "",
-                    "container_text": text,
-                    "html": fragment[:5000],
-                    "extract_method": "html_regex_wb",
-                }
-            )
+    fragments = _product_card_fragments(html)
+    if not fragments:
+        fragments = [_snippet_around(html, m.start(), m.end()) for m in _HREF_RE.finditer(html or "")]
+
+    for fragment in fragments:
         if len(out) >= limit:
             break
+        href_match = _HREF_RE.search(fragment) or _ANY_URL_RE.search(fragment)
+        if not href_match:
+            continue
+        href = _clean_url(_abs_url(seed_url, href_match.group("href")))
+        if href in seen or not _is_wb_product_url(href) or not _same_wb_family(href):
+            continue
+        text = _strip_html(fragment)
+        low = text.lower()
+        brand_l = str(expected_brand or "").lower().strip()
+        aria = _extract_attr(fragment, "aria-label")
+        img_alt = _extract_attr(fragment, "alt")
+        all_text = "\n".join([text, aria, img_alt])
+        all_low = all_text.lower()
+        if brand_l and brand_l not in all_low and "demiand" not in all_low and "демианд" not in all_low:
+            continue
+        if not any(hint in all_low for hint in _WB_TYPE_HINTS) and "demiand" not in all_low and "демианд" not in all_low:
+            continue
+        nm = re.search(r'data-nm-id=["\'](?P<nm>\d+)["\']', fragment, flags=re.IGNORECASE)
+        title = aria or img_alt
+        seen.add(href)
+        out.append(
+            {
+                "href": href,
+                "market_id": nm.group("nm") if nm else "",
+                "title": title,
+                "link_text": title,
+                "aria_label": aria,
+                "brand": expected_brand if (expected_brand and (expected_brand.lower() in all_low or "demiand" in all_low)) else "",
+                "image": _extract_first_img(fragment, seed_url),
+                "image_alt": img_alt,
+                "container_text": all_text,
+                "price_currency": _detect_currency_label(all_text).upper() if _detect_currency_label(all_text) in ("kzt", "rub") else None,
+                "html": fragment[:5000],
+                "extract_method": "html_product_card_wb",
+            }
+        )
     return out
 
 
@@ -751,6 +796,63 @@ def _enrich_cards_from_page_body(cards_by_url: dict[str, dict[str, Any]], body_t
                 card["container_text"] = (existing + "\n" + block).strip()
         if currency and card.get("price") not in (None, "", 0) and not card.get("price_currency"):
             card["price_currency"] = currency
+
+
+def _baseline_path() -> Path | None:
+    try:
+        path = path_from_config("artifacts_state_dir") / "market_seed_baseline.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+    except Exception:
+        return None
+
+
+def _load_seed_baseline(seed_key: Any) -> dict[str, Any]:
+    path = _baseline_path()
+    if not path or not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+        return (data.get("seeds", {}) or {}).get(str(seed_key), {}) or {}
+    except Exception:
+        return {}
+
+
+def _update_seed_baseline(seed_key: Any, report: dict[str, Any]) -> None:
+    path = _baseline_path()
+    if not path:
+        return
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig")) if path.exists() else {"seeds": {}}
+    except Exception:
+        data = {"seeds": {}}
+    seeds = data.setdefault("seeds", {})
+    current_count = int(report.get("cards_unique_url") or 0)
+    # Update baseline only on usable WB pages, not on blocked/empty/wrong-currency runs.
+    if report.get("status") == "ok" and current_count > 0 and report.get("price_currency_detected") == "kzt":
+        previous = seeds.get(str(seed_key), {}) or {}
+        best_count = max(int(previous.get("best_cards_unique_url") or 0), current_count)
+        seeds[str(seed_key)] = {
+            "last_ok_cards_unique_url": current_count,
+            "best_cards_unique_url": best_count,
+            "last_status": report.get("status"),
+            "last_currency": report.get("price_currency_detected"),
+            "last_delivery_region": report.get("delivery_region_detected"),
+        }
+        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _append_baseline_warning(seed_key: Any, report: dict[str, Any]) -> None:
+    previous = _load_seed_baseline(seed_key)
+    if not previous:
+        return
+    current = int(report.get("cards_unique_url") or 0)
+    last_ok = int(previous.get("last_ok_cards_unique_url") or 0)
+    if current <= 0 or last_ok <= 0:
+        return
+    ratio = float(discovery_cfg().get("baseline_drop_warning_ratio") or discovery_cfg().get("expected_drop_warning_ratio") or 0.45)
+    if current < max(1, int(last_ok * ratio)):
+        report.setdefault("warnings", []).append(f"cards_dropped_vs_last_ok_baseline: previous={last_ok}, current={current}")
 
 def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     source = str(seed.get("source") or "").strip().lower()
@@ -1022,7 +1124,6 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
     report["network_urls_sample"] = network_urls[:25]
     report["cards_seen_raw"] = len(cards_by_url)
     report["cards_unique_url"] = len(cards_by_url)
-    expected_min = int(seed.get("expected_min_cards") or 0)
     page_currency = "unknown"
     try:
         card_text = "\n".join(str(card.get("container_text") or "") for card in cards_by_url.values())
@@ -1040,8 +1141,6 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
             report["warnings"].append("wb_delivery_region_not_almaty_eta_not_trusted")
     if page_currency == "rub":
         report["warnings"].append("wb_price_currency_rub_detected_expected_kzt")
-    if expected_min and len(cards_by_url) < expected_min:
-        report["warnings"].append(f"cards_below_expected_min: expected_min={expected_min}, found={len(cards_by_url)}")
     if blocked_detected:
         report["warnings"].append("blocked_page_needs_manual_check_or_retry")
     if not cards_by_url and report.get("body_text_length", 0) < 1000:
@@ -1054,4 +1153,6 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
         report["status"] = "blocked"
     else:
         report["status"] = "empty"
+    _append_baseline_warning(seed_key, report)
+    _update_seed_baseline(seed_key, report)
     return list(cards_by_url.values()), report
