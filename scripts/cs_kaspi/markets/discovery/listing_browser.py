@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import base64
 import html as html_lib
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -44,6 +46,79 @@ def _debug_dir() -> Path | None:
         return path
     except Exception:
         return None
+
+
+def _private_runtime_dir() -> Path:
+    path = Path(os.environ.get("RUNNER_TEMP") or "/tmp") / "cs_kaspi_private"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _decode_storage_state_payload(raw: str) -> dict[str, Any] | None:
+    text = (raw or "").strip()
+    if not text:
+        return None
+    # Secret may be either raw JSON or base64(JSON). Prefer base64 for GitHub Secrets.
+    candidates = [text]
+    compact = re.sub(r"\s+", "", text)
+    try:
+        decoded = base64.b64decode(compact + "=" * (-len(compact) % 4), validate=False).decode("utf-8")
+        if decoded.strip():
+            candidates.insert(0, decoded.strip())
+    except Exception:
+        pass
+    for candidate in candidates:
+        try:
+            data = json.loads(candidate)
+            if isinstance(data, dict) and isinstance(data.get("cookies"), list):
+                return data
+        except Exception:
+            continue
+    return None
+
+
+def _storage_state_from_profile_session(cfg: dict[str, Any], report: dict[str, Any]) -> str | None:
+    """Load Playwright storage_state for a separate WB working profile.
+
+    We never store login/password in the repo. GitHub receives only WB_STORAGE_STATE_B64,
+    a base64-encoded Playwright storage_state JSON. If it is missing or invalid, the pipeline
+    falls back to normal live WB mode and reports that the profile session was not used.
+    """
+    if cfg.get("profile_session_enabled") is False:
+        report["wb_profile_session_enabled"] = False
+        return None
+    report["wb_profile_session_enabled"] = True
+    env_name = str(cfg.get("profile_storage_state_env") or "WB_STORAGE_STATE_B64").strip()
+    raw = os.environ.get(env_name, "")
+    if raw:
+        data = _decode_storage_state_payload(raw)
+        if not data:
+            report["wb_profile_session_used"] = False
+            report.setdefault("warnings", []).append(f"wb_profile_session_secret_invalid: {env_name}")
+            return None
+        out_path = _private_runtime_dir() / "wb_storage_state.json"
+        out_path.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+        report["wb_profile_session_used"] = True
+        report["wb_profile_session_source"] = env_name
+        report["wb_profile_session_cookies_count"] = len(data.get("cookies") or [])
+        return str(out_path)
+
+    file_value = str(cfg.get("profile_storage_state_file") or "").strip()
+    if file_value:
+        file_path = Path(file_value)
+        if file_path.exists():
+            report["wb_profile_session_used"] = True
+            report["wb_profile_session_source"] = str(file_path)
+            return str(file_path)
+        report.setdefault("warnings", []).append(f"wb_profile_session_file_missing: {file_path}")
+
+    report["wb_profile_session_used"] = False
+    report.setdefault("warnings", []).append(f"wb_profile_session_secret_missing: {env_name}")
+    return None
+
+
+def _profile_safe_mode_enabled(cfg: dict[str, Any], report: dict[str, Any]) -> bool:
+    return bool(report.get("wb_profile_session_used")) and bool(cfg.get("profile_safe_no_ui_switch", True))
 
 
 def _write_debug(seed_key: Any, name: str, data: str | bytes) -> None:
@@ -261,8 +336,12 @@ def _try_force_kzt(page: Any, cfg: dict[str, Any], report: dict[str, Any]) -> No
     """Try to switch WB desktop page to Kazakhstan/KZT.
 
     GitHub runners often open WB as San Jose/RUB. That price must never silently become Kaspi KZT.
-    This function is a soft UI-level attempt only; if WB keeps RUB, later validation marks records as RUB.
+    If a WB profile session is used, we do not click currency UI in safe mode: the profile
+    must already contain Алматы/KZT, and clicking random WB controls increases block risk.
     """
+    if _profile_safe_mode_enabled(cfg, report):
+        report["wb_currency_switch"] = "skipped_profile_safe_mode"
+        return
     try:
         text_before = page.locator("body").inner_text(timeout=3000)
     except Exception:
@@ -899,19 +978,23 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
                 headless=bool(cfg.get("headless", True)),
                 args=["--no-sandbox", "--disable-dev-shm-usage"],
             )
-            context = browser.new_context(
-                viewport={"width": int(cfg.get("viewport_width") or 1440), "height": int(cfg.get("viewport_height") or 1400)},
-                locale="ru-KZ",
-                timezone_id="Asia/Almaty",
-                geolocation={"latitude": 43.238949, "longitude": 76.889709},
-                permissions=["geolocation"],
-                user_agent=(
+            storage_state_path = _storage_state_from_profile_session(cfg, report)
+            context_kwargs: dict[str, Any] = {
+                "viewport": {"width": int(cfg.get("viewport_width") or 1440), "height": int(cfg.get("viewport_height") or 1400)},
+                "locale": "ru-KZ",
+                "timezone_id": "Asia/Almaty",
+                "geolocation": {"latitude": 43.238949, "longitude": 76.889709},
+                "permissions": ["geolocation"],
+                "user_agent": (
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                     "AppleWebKit/537.36 (KHTML, like Gecko) "
                     "Chrome/124.0.0.0 Safari/537.36"
                 ),
-                extra_http_headers={"Accept-Language": "ru-KZ,ru;q=0.9,en-US;q=0.7,en;q=0.6"},
-            )
+                "extra_http_headers": {"Accept-Language": "ru-KZ,ru;q=0.9,en-US;q=0.7,en;q=0.6"},
+            }
+            if storage_state_path:
+                context_kwargs["storage_state"] = storage_state_path
+            context = browser.new_context(**context_kwargs)
             context.add_init_script(
                 """
                 Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
@@ -925,25 +1008,20 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
                 """
             )
 
-            def route_wb_currency(route: Any) -> None:
-                try:
-                    req_url = route.request.url
-                    new_url = _force_wb_currency_in_request_url(req_url)
-                    if new_url != req_url:
-                        return route.continue_(url=new_url)
-                except Exception:
-                    pass
-                return route.continue_()
-
-            try:
-                context.route("**/*", route_wb_currency)
-            except Exception:
-                pass
+            profile_safe_no_rewrite = bool(report.get("wb_profile_session_used")) and bool(cfg.get("profile_safe_no_request_rewrite", True))
+            rewrite_currency = bool(cfg.get("force_request_currency_kzt", True)) and not profile_safe_no_rewrite
+            rewrite_geo = bool(cfg.get("force_geo_request_almaty", True)) and not profile_safe_no_rewrite
+            report["wb_request_rewrite_currency"] = rewrite_currency
+            report["wb_request_rewrite_geo"] = rewrite_geo
 
             def _route_wb_geo_and_currency(route: Any) -> None:
                 try:
                     req_url = route.request.url
-                    new_url = _force_wb_almaty_geo_url(_force_wb_currency_in_request_url(req_url))
+                    new_url = req_url
+                    if rewrite_currency:
+                        new_url = _force_wb_currency_in_request_url(new_url)
+                    if rewrite_geo:
+                        new_url = _force_wb_almaty_geo_url(new_url)
                     if new_url != req_url:
                         route.continue_(url=new_url)
                     else:
@@ -954,10 +1032,11 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
                     except Exception:
                         pass
 
-            try:
-                context.route("**/*", _route_wb_geo_and_currency)
-            except Exception:
-                pass
+            if rewrite_currency or rewrite_geo:
+                try:
+                    context.route("**/*", _route_wb_geo_and_currency)
+                except Exception:
+                    pass
 
             page = context.new_page()
 
@@ -1139,6 +1218,8 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
         _stamp_currency_only(cards_by_url, page_currency)
         if cards_by_url:
             report["warnings"].append("wb_delivery_region_not_almaty_eta_not_trusted")
+            if report.get("wb_profile_session_used"):
+                report["warnings"].append("wb_profile_session_region_not_almaty_recreate_session")
     if page_currency == "rub":
         report["warnings"].append("wb_price_currency_rub_detected_expected_kzt")
     if blocked_detected:
