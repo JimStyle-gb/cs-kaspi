@@ -21,6 +21,7 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          WB_STORAGE_STATE_B64: ${{ secrets.WB_STORAGE_STATE_B64 }}
         run: python -m scripts.cs_kaspi.commands.build_all
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
