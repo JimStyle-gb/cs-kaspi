@@ -94,6 +94,21 @@ def match_one(record: dict[str, Any], indexes: dict[str, dict[str, str]]) -> dic
                 "matched_by": method,
                 "match_confidence": max(int(record.get("match_confidence") or 0), confidence),
             }
+    market_product_key = record.get("market_product_key") or record.get("product_key")
+    official_status = str(record.get("official_match_status") or "")
+    is_market_only = bool(market_product_key) and (
+        official_status.startswith("missing")
+        or record.get("base_product_key") in (None, "")
+        or record.get("matched_by") == "wb_demiand_brand_sellable_variant"
+    )
+    if is_market_only:
+        return {
+            **record,
+            "matched_product_key": market_product_key,
+            "matched_base_product_key": None,
+            "matched_by": record.get("matched_by") or "market_only_wb_demiand",
+            "match_confidence": max(int(record.get("match_confidence") or 0), 65),
+        }
     return {
         **record,
         "matched_product_key": None,
