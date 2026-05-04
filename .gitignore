@@ -20,3 +20,11 @@ artifacts/kaspi_match_templates/*
 input/official/*/catalog_pages/*.html
 input/official/*/product_pages/*.html
 input/official/*/manuals/*
+
+# Private WB browser/session files - never commit these.
+input/private/
+input/wb_profile/
+wb_storage_state.json
+wb_storage_state.b64.txt
+*storage_state*.json
+*storage_state*.b64.txt
