@@ -11,6 +11,15 @@ discovery:
 browser:
   engine: chromium
   headless: true
+  # WB profile session mode: use a separate WB account/session from GitHub Secrets.
+  # Secret must be Playwright storage_state JSON encoded as base64 in WB_STORAGE_STATE_B64.
+  profile_session_enabled: true
+  profile_storage_state_env: WB_STORAGE_STATE_B64
+  profile_safe_no_ui_switch: true
+  profile_safe_no_request_rewrite: true
+  # If no profile session is available, live GitHub mode still tries to request KZT/Almaty.
+  force_request_currency_kzt: true
+  force_geo_request_almaty: true
   viewport_width: 1440
   viewport_height: 1400
   goto_timeout_ms: 60000
