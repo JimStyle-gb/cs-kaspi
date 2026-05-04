@@ -182,4 +182,9 @@ def make_market_product_key(*, base_product_key: str, signature: str) -> str:
     # Same exact WB variant from duplicated WB listings collapses by this key.
     # Different colors/sets/bundles/accessories keep different title fingerprints.
     key = f"{base_product_key}__mv_{slugify_ascii(signature)[:80]}"
-    return slugify_ascii(key)[:140]
+    return slugify_ascii(key)[:118]
+
+
+def make_market_only_product_key(*, supplier_key: str, category_key: str, signature: str) -> str:
+    key = f"{supplier_key}_{category_key}__wb_{slugify_ascii(signature)[:88]}"
+    return slugify_ascii(key)[:118]
