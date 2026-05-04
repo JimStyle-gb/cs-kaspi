@@ -9,6 +9,7 @@ from scripts.cs_kaspi.core.text_utils import normalize_spaces
 from scripts.cs_kaspi.core.time_utils import ALMATY_TZ
 
 _PRICE_RE = re.compile(r"(?P<num>\d[\d\s\u00a0\u2009\u202f]{2,})(?:\s?₸|\s?тг|\s?kzt|\s?₽|\s?руб)?", re.IGNORECASE)
+_CURRENCY_PRICE_RE = re.compile(r"(?P<num>\d[\d\s\u00a0\u2009\u202f]{2,})\s?(?P<cur>₸|тг|kzt|₽|руб|rub)", re.IGNORECASE)
 _KZT_RE = re.compile(r"(?:₸|тг|kzt)", re.IGNORECASE)
 _RUB_RE = re.compile(r"(?:₽|руб|rub)", re.IGNORECASE)
 _MONTHLY_RE = re.compile(r"(?:мес|месяц|x\s*\d+|×\s*\d+)", re.IGNORECASE)
@@ -75,6 +76,22 @@ def _line_price_candidate(line: str, *, required_currency: str | None = None) ->
     if required_currency == "KZT" and not _KZT_RE.search(clean):
         return None
     if required_currency == "RUB" and not _RUB_RE.search(clean):
+        return None
+
+    currency_values: list[int] = []
+    for match in _CURRENCY_PRICE_RE.finditer(clean):
+        cur = match.group("cur") or ""
+        if required_currency == "KZT" and not _KZT_RE.search(cur):
+            continue
+        if required_currency == "RUB" and not _RUB_RE.search(cur):
+            continue
+        value = _num(match.group("num"))
+        if value and value >= 300:
+            currency_values.append(value)
+    if currency_values:
+        return min(currency_values)
+
+    if "оцен" in lower or "рейтинг" in lower:
         return None
 
     has_any_currency = bool(_KZT_RE.search(clean) or _RUB_RE.search(clean))
