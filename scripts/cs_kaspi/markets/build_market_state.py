@@ -35,6 +35,7 @@ def _public_record(record: dict[str, Any]) -> dict[str, Any]:
         "title": record.get("title"),
         "url": record.get("url"),
         "price": record.get("price"),
+        "price_currency": record.get("price_currency"),
         "old_price": record.get("old_price"),
         "available": record.get("available"),
         "stock": record.get("stock"),
@@ -42,6 +43,7 @@ def _public_record(record: dict[str, Any]) -> dict[str, Any]:
         "rating": record.get("rating"),
         "reviews_count": record.get("reviews_count"),
         "matched_by": record.get("matched_by"),
+        "official_match_status": record.get("official_match_status"),
         "match_confidence": record.get("match_confidence"),
         "source_file": record.get("source_file"),
         "source_row": record.get("source_row"),
@@ -63,6 +65,12 @@ def _variant_fields(record: dict[str, Any] | None) -> dict[str, Any]:
         "market_bundle": record.get("market_bundle"),
         "market_variant_signature": record.get("market_variant_signature") or record.get("variant_key"),
         "market_title": record.get("title"),
+        "market_image": record.get("image"),
+        "supplier_key": record.get("supplier_key"),
+        "category_key": record.get("category_key"),
+        "brand": record.get("raw", {}).get("brand") if isinstance(record.get("raw"), dict) else None,
+        "model_key": record.get("model_key"),
+        "official_match_status": record.get("official_match_status"),
     }
 
 
@@ -91,9 +99,11 @@ def _product_market(records: list[dict[str, Any]]) -> dict[str, Any]:
             "market_price": int(best.get("price")),
             "market_price_source": best.get("source"),
             "market_url": best.get("url"),
+            "market_image": best.get("image"),
             "stock": max(stock_values) if stock_values else 1,
-            # No safety buffer: market ETA is copied as-is when available.
+            # No safety buffer: market ETA is copied as-is when available. Missing ETA remains visible in meta.
             "lead_time_days": min(lead_values) if lead_values else 3,
+            "eta_status": "trusted_or_market_provided" if lead_values else "missing_market_eta_fallback_used",
             **_variant_fields(best),
         }
 
@@ -106,8 +116,10 @@ def _product_market(records: list[dict[str, Any]]) -> dict[str, Any]:
             "market_price": None,
             "market_price_source": None,
             "market_url": None,
+            "market_image": first.get("image"),
             "stock": 0,
             "lead_time_days": 20,
+            "eta_status": "not_sellable",
             **_variant_fields(first),
         }
 
