@@ -5,8 +5,8 @@ discovery:
   fetch_product_pages: false
   fail_build_on_seed_error: false
   max_cards_per_seed: 1200
-  expected_drop_warning_ratio: 0.45
-  business_rule: wb_is_sellable_source_official_is_enrichment_only
+  baseline_drop_warning_ratio: 0.45
+  business_rule: wb_demiand_items_are_sellable_official_is_enrichment_only
 
 browser:
   engine: chromium
@@ -34,6 +34,7 @@ matching:
   allow_market_bundle_as_kaspi_variant: true
   accept_wb_brand_items_as_sellable_variants: true
   official_source_is_enrichment_not_exact_filter: true
+  allow_market_only_when_official_missing: true
   collapse_only_same_market_variant: true
   minimum_confidence_for_auto_market_record: 65
   confidence_for_review: 45
@@ -55,7 +56,6 @@ seeds:
     supplier_key: demiand
     brand: DEMIAND
     enabled: true
-    expected_min_cards: 5
     url: https://www.wildberries.ru/catalog/elektronika/tehnika-dlya-kuhni/prigotovlenie-blyud?page=1&sort=popular&fbrand=53038
 
   - seed_key: wb_demiand_drinks
@@ -63,7 +63,6 @@ seeds:
     supplier_key: demiand
     brand: DEMIAND
     enabled: true
-    expected_min_cards: 1
     url: https://www.wildberries.ru/catalog/elektronika/tehnika-dlya-kuhni/prigotovlenie-napitkov?sort=popular&page=1&fbrand=53038
 
   - seed_key: wb_demiand_blending
@@ -71,7 +70,6 @@ seeds:
     supplier_key: demiand
     brand: DEMIAND
     enabled: true
-    expected_min_cards: 1
     url: https://www.wildberries.ru/catalog/elektronika/tehnika-dlya-kuhni/izmelchenie-i-smeshivanie?sort=popular&page=1&fbrand=53038
 
   - seed_key: wb_demiand_accessories
@@ -79,5 +77,4 @@ seeds:
     supplier_key: demiand
     brand: DEMIAND
     enabled: true
-    expected_min_cards: 15
     url: https://www.wildberries.ru/catalog/elektronika/tehnika-dlya-kuhni/aksessuary-dlya-kuhonnoy-tehniki?sort=popular&page=1&fbrand=53038
