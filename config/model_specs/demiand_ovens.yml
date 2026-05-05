@@ -28,6 +28,8 @@ models:
       color: black
       control_type: сенсорное
       temperature_range_text: 80-450℃
+      temperature_min_c: 80
+      temperature_max_c: 450
       timer_range_text: 1 — 30 минут
       weight_kg: 16.5
       product_dimensions_text: 45 x 44 x 31 см
