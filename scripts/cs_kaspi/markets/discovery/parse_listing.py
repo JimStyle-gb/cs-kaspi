@@ -15,6 +15,7 @@ _RUB_RE = re.compile(r"(?:₽|руб|rub)", re.IGNORECASE)
 _MONTHLY_RE = re.compile(r"(?:мес|месяц|x\s*\d+|×\s*\d+)", re.IGNORECASE)
 _STOCK_RE = re.compile(r"(?P<n>\d+)\s*шт\s+остал(?:ось|ись)?|остал(?:ось|ись)?\s+(?P<n2>\d+)\s*шт", re.IGNORECASE)
 _DATE_RE = re.compile(r"(?P<day>\d{1,2})\s+(?P<month>января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)", re.IGNORECASE)
+_DAYS_RE = re.compile(r"(?P<days>\d{1,3})\s*(?:дн(?:я|ей)?|day|days)", re.IGNORECASE)
 _MODEL_CODE_RE = re.compile(r"\b(?:dk|дк|aa|bl|kf)[\s\-/]*\d{2,5}\b", re.IGNORECASE)
 _LETTER_RE = re.compile(r"[A-Za-zА-Яа-яЁё]")
 _PRODUCT_TITLE_RE = re.compile(
@@ -160,6 +161,9 @@ def extract_eta_text(text: str) -> str | None:
     match = _DATE_RE.search(lower)
     if match:
         return f"{match.group('day')} {match.group('month')}"
+    match = _DAYS_RE.search(lower)
+    if match:
+        return f"{int(match.group('days'))} дней"
     return None
 
 
@@ -174,6 +178,9 @@ def eta_to_days(eta_text: str | None) -> int | None:
         return 1
     if lower == "послезавтра":
         return 2
+    match_days = _DAYS_RE.search(lower)
+    if match_days:
+        return max(0, int(match_days.group("days")))
     match = _DATE_RE.search(lower)
     if not match:
         return None
@@ -351,6 +358,7 @@ def normalize_card(raw: dict[str, Any]) -> dict[str, Any]:
 
     explicit_stock = _int_or_none(raw.get("stock"))
     stock = explicit_stock if explicit_stock is not None else extract_stock(raw_text)
+    raw_lead_time_days = _int_or_none(raw.get("lead_time_days"))
     eta_text = _clean_text(raw.get("eta_text")) or _extract_scoped_eta(raw_text, title) or extract_eta_text(raw_text)
     url = raw.get("url") or raw.get("href")
     market_id = raw.get("market_id") or url
@@ -372,7 +380,7 @@ def normalize_card(raw: dict[str, Any]) -> dict[str, Any]:
         "available": bool(available),
         "stock": stock if stock is not None else (1 if price else 0),
         "eta_text": eta_text or None,
-        "lead_time_days": eta_to_days(eta_text),
+        "lead_time_days": raw_lead_time_days if raw_lead_time_days is not None else eta_to_days(eta_text),
         "raw_text": text[:2000],
         "raw": raw,
     }
