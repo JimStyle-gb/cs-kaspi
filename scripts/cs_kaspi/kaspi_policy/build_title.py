@@ -26,7 +26,8 @@ CATEGORY_TITLE_ALIASES = {
     "air_fryer_accessories": ("аксессуар", "решет", "решёт", "шампур", "корзин", "форма", "вкладыш", "поддон"),
     "air_fryers": ("аэрогр", "гриль"),
     "blenders": ("блендер", "суповар", "измельч"),
-    "coffee_makers": ("кофевар", "кофемаш", "стаканчик", "стакан"),
+    "coffee_maker_accessories": ("стаканчик", "стакан", "бумажн", "для кофевар"),
+    "coffee_makers": ("кофевар", "кофемаш"),
     "ovens": ("печь", "духов"),
 }
 
@@ -34,6 +35,7 @@ CATEGORY_TITLE_RU = {
     "air_fryer_accessories": "аксессуар для аэрогриля",
     "air_fryers": "аэрогриль",
     "blenders": "блендер",
+    "coffee_maker_accessories": "аксессуар для кофеварки",
     "coffee_makers": "кофеварка",
     "ovens": "печь",
 }
