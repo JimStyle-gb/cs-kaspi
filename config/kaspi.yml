@@ -53,11 +53,11 @@ image_package:
   create_zip: true
   keep_unzipped_images: false
   output_format: jpg
-  jpeg_quality: 88
-  max_side_px: 1600
+  jpeg_quality: 95
+  max_side_px: 0
   max_images_per_product: 10
   timeout_sec: 12
   retries: 1
   min_bytes: 512
   user_agent: CS-Kaspi/1.0 (+https://github.com/JimStyle-gb/CS-Kaspi)
-  note: Обычный Build_All собирает kaspi_images.zip с путями images/<merchant_sku>/01.jpg. Папка с распакованными фото после ZIP удаляется, чтобы artifact не хранил фото два раза. Для отключения скачивания установить CS_KASPI_DOWNLOAD_IMAGES=0.
+  note: Обычный Build_All собирает kaspi_images.zip с путями images/<merchant_sku>/01.jpg. JPG/JPEG из источника сохраняются как есть без пережатия; WebP/PNG конвертируются в JPG с высоким качеством 95; max_side_px=0 означает не уменьшать фото. Папка с распакованными фото после ZIP удаляется, чтобы artifact не хранил фото два раза. Для отключения скачивания установить CS_KASPI_DOWNLOAD_IMAGES=0.
