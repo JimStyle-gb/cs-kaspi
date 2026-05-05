@@ -185,6 +185,96 @@ def _oven_row(product: dict[str, Any], template: dict[str, Any]) -> dict[str, An
     return row
 
 
+
+def _number_from_ml_or_l(blob: str, marker: str) -> Any:
+    """Извлекает объём резервуара из текста: 1,6 л или 1600 мл."""
+    safe_marker = re.escape(marker)
+    m_l = re.search(rf"{safe_marker}[^.;:]*?(\d+(?:[\.,]\d+)?)\s*л", blob, flags=re.IGNORECASE)
+    if m_l:
+        return number(m_l.group(1).replace(",", "."))
+    m_ml = re.search(rf"{safe_marker}[^.;:]*?(\d+(?:[\.,]\d+)?)\s*мл", blob, flags=re.IGNORECASE)
+    if m_ml:
+        try:
+            return number(float(m_ml.group(1).replace(",", ".")) / 1000)
+        except Exception:
+            return ""
+    return ""
+
+
+def _coffee_machine_row(product: dict[str, Any], template: dict[str, Any]) -> dict[str, Any]:
+    row = base_row(product, template)
+    official = product.get("official", {}) or {}
+    market = product.get("market", {}) or {}
+    specs = official.get("specs", {}) or {}
+    blob = text_blob(product)
+
+    coffee_type = specs.get("coffee_machine_type") or ("кофеварка" if "кофевар" in blob else "кофемашина")
+    coffee_view = specs.get("coffee_machine_view")
+    if not coffee_view:
+        if "рожков" in blob:
+            coffee_view = "рожковая"
+        elif "капсуль" in blob:
+            coffee_view = "капсульная"
+        elif "капель" in blob:
+            coffee_view = "капельная"
+    used_coffee = specs.get("coffee_used")
+    if not used_coffee:
+        used = []
+        if contains_any(blob, ["молот"]):
+            used.append("молотый")
+        if contains_any(blob, ["чалд"]):
+            used.append("чалды")
+        if contains_any(blob, ["капсул", "nespresso"]):
+            used.append("капсулы")
+        used_coffee = ", ".join(dict.fromkeys(used))
+    heater_type = specs.get("heater_type") or ("термоблок" if contains_any(blob, ["эспрессо", "помпа", "рожков"]) else "")
+    pressure_bar = specs.get("pressure_bar") or first_number(blob, suffixes=("бар",))
+    water_tank_l = specs.get("water_tank_l") or _number_from_ml_or_l(blob, "резервуар для воды")
+    control = str(specs.get("control_type") or "").lower()
+    has_cappuccinator = bool(specs.get("cappuccinator")) or contains_any(blob, ["капучинатор", "капучино", "латте", "молочной пен"])
+    has_display = specs.get("display") or ("с подсветкой" if contains_any(blob, ["led-дисплей", "led дисплей", "жк-дисплей"]) else ("есть" if "дисплей" in blob else "нет"))
+    case_material = specs.get("case_material") or "металл/пластик"
+
+    put(row, template, "Тип", coffee_type)
+    put(row, template, "Вид", coffee_view)
+    put(row, template, "Приготовление эспрессо", "автоматическое" if "автомат" in blob else "полуавтоматическое")
+    put(row, template, "Количество групп", "1")
+    put(row, template, "Используемый кофе", used_coffee)
+    put(row, template, "Материал рожка", "металл")
+    put(row, template, "Тип нагревателя", heater_type)
+    put(row, template, "Раздельные бойлеры", False)
+    put(row, template, "Мощность", number(specs.get("power_w")))
+    put(row, template, "Объем резервуара для воды", water_tank_l)
+    put(row, template, "Максимальное давление", number(pressure_bar))
+    put(row, template, "Манометр", False)
+    put(row, template, "Настройки", specs.get("settings") or "регулировка температуры кофе, контроль крепости кофе")
+    put(row, template, "Регулировка жесткости воды", False)
+    put(row, template, "Автоматическая декальцинация", bool(specs.get("auto_decalcification")) or contains_any(blob, ["очистка от накипи", "декальцинац"]))
+    put(row, template, "Возможность приготовления капучино", has_cappuccinator)
+    put(row, template, "Приготовление капучино", specs.get("cappuccino_preparation") or ("автоматическое" if has_cappuccinator else "отсутствует"))
+    put(row, template, "Модель", specs.get("article") or product.get("model_key"))
+    put(row, template, "Отключение", "автоотключение" if contains_any(blob, ["автоотключ"]) else "")
+    put(row, template, "Материал корпуса", case_material)
+    put(row, template, "Индикаторы", specs.get("indicators") or "режима работы, уровня воды")
+    put(row, template, "Размеры (ШxВxГ)", specs.get("product_dimensions_text") or specs.get("package_dimensions_text"))
+    put(row, template, "Вес", number(specs.get("weight_kg")))
+    put(row, template, "Дополнительная информация", "автоматический капучинатор" if has_cappuccinator else "")
+    put(row, template, "Комплектация", specs.get("complete_set") or "рожок, фильтр, резервуар для молока, инструкция")
+    put(row, template, "Возможности", "без дополнительных функций")
+    put(row, template, "Кофемолка", bool(specs.get("coffee_grinder")))
+    put(row, template, "Фильтр", specs.get("filter_type") or "многоразовый")
+    put(row, template, "Противокапельная система", bool(specs.get("drip_stop")))
+    put(row, template, "Одновременное приготовление двух чашек", contains_any(blob, ["двух порц", "2 эспрессо", "двойной порц"]))
+    put(row, template, "Подогрев чашек", bool(specs.get("cups_heating")) or contains_any(blob, ["подогрев чаш"] ))
+    put(row, template, "Особенности корпуса", specs.get("case_features") or "съемный лоток для сбора капель")
+    put(row, template, "Подсветка", False)
+    put(row, template, "Дисплей", has_display)
+    put(row, template, "Подача горячей воды", contains_any(blob, ["американо", "горячей воды"]))
+    put(row, template, "Цвет", normalize_color(market.get("market_color") or specs.get("color")))
+    put(row, template, "Страна производства", "Китай")
+    return row
+
+
 def build_row(product: dict[str, Any]) -> dict[str, Any]:
     template_key = template_key_for_category(product.get("category_key"))
     template = load_template(template_key)
@@ -194,6 +284,8 @@ def build_row(product: dict[str, Any]) -> dict[str, Any]:
         row = _air_fryer_row(product, template)
     elif template_key == "blenders":
         row = _blender_row(product, template)
+    elif template_key == "coffee_machines":
+        row = _coffee_machine_row(product, template)
     elif template_key == "accessories_small_kitchen":
         row = _accessory_row(product, template)
     elif template_key == "tabletop_ovens":
