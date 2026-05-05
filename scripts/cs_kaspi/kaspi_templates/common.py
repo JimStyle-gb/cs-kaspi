@@ -15,6 +15,7 @@ TEMPLATE_BY_CATEGORY = {
     "blenders": "blenders",
     "air_fryer_accessories": "accessories_small_kitchen",
     "coffee_maker_accessories": "accessories_small_kitchen",
+    "coffee_makers": "coffee_machines",
     "ovens": "tabletop_ovens",
 }
 
