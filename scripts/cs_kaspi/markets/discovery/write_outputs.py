@@ -15,6 +15,77 @@ REVIEW_HEADERS = [
 ]
 
 
+
+
+def _write_variant_collapse_audit_txt(path: Path, groups: list[dict[str, Any]]) -> None:
+    lines = [
+        "CS-Kaspi WB variant collapse audit",
+        "Правило: схлопываются только точные дубли одного sellable-варианта; отличия по цвету/комплекту/типу/аксессуару остаются отдельными Kaspi-кандидатами.",
+        "",
+    ]
+    if not groups:
+        lines.append("duplicate_groups: 0")
+    for idx, group in enumerate(groups, 1):
+        lines.append(f"#{idx} {group.get('chosen_title')}")
+        lines.append(f"  variant_key: {group.get('variant_key')}")
+        lines.append(f"  color: {group.get('market_color') or '-'}")
+        lines.append(f"  bundle: {group.get('market_bundle') or '-'}")
+        lines.append(f"  wb_entity: {group.get('wb_entity') or '-'}")
+        lines.append(f"  collapsed_count: {group.get('collapsed_count')}")
+        lines.append(f"  chosen_market_id: {group.get('chosen_market_id')}")
+        lines.append(f"  chosen_price: {group.get('chosen_price')}")
+        lines.append("  offers:")
+        for offer in group.get('offers') or []:
+            lines.append(
+                "    - "
+                f"id={offer.get('market_id')} "
+                f"root={offer.get('wb_root') or '-'} "
+                f"supplier={offer.get('wb_supplier_id') or '-'} "
+                f"price={offer.get('price')} "
+                f"stock={offer.get('stock')} "
+                f"eta={offer.get('lead_time_days')} "
+                f"seed={offer.get('seed_key')} "
+                f"url={offer.get('url')}"
+            )
+        lines.append("")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _write_variant_collapse_audit_csv(path: Path, groups: list[dict[str, Any]]) -> None:
+    headers = [
+        "group_no", "market_product_key", "variant_key", "chosen_market_id", "chosen_price",
+        "chosen_title", "market_color", "market_bundle", "wb_entity", "collapsed_count",
+        "offer_market_id", "offer_wb_root", "offer_wb_supplier_id", "offer_price",
+        "offer_stock", "offer_eta_days", "offer_seed_key", "offer_url",
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8-sig", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=headers)
+        writer.writeheader()
+        for idx, group in enumerate(groups, 1):
+            for offer in group.get('offers') or []:
+                writer.writerow({
+                    "group_no": idx,
+                    "market_product_key": group.get("market_product_key"),
+                    "variant_key": group.get("variant_key"),
+                    "chosen_market_id": group.get("chosen_market_id"),
+                    "chosen_price": group.get("chosen_price"),
+                    "chosen_title": group.get("chosen_title"),
+                    "market_color": group.get("market_color"),
+                    "market_bundle": group.get("market_bundle"),
+                    "wb_entity": group.get("wb_entity"),
+                    "collapsed_count": group.get("collapsed_count"),
+                    "offer_market_id": offer.get("market_id"),
+                    "offer_wb_root": offer.get("wb_root"),
+                    "offer_wb_supplier_id": offer.get("wb_supplier_id"),
+                    "offer_price": offer.get("price"),
+                    "offer_stock": offer.get("stock"),
+                    "offer_eta_days": offer.get("lead_time_days"),
+                    "offer_seed_key": offer.get("seed_key"),
+                    "offer_url": offer.get("url"),
+                })
+
 def _write_review_csv(path: Path, rows: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8-sig", newline="") as fh:
@@ -64,6 +135,7 @@ def _write_report(path: Path, result: dict[str, Any]) -> None:
         f"scored_candidates: {summary.get('scored_candidates', 0)}",
         f"auto_best_offer_records: {summary.get('auto_best_offer_records', 0)}",
         f"duplicates_collapsed: {summary.get('duplicates_collapsed', 0)}",
+        f"duplicate_groups: {summary.get('duplicate_groups', 0)}",
         f"review_needed: {summary.get('review_needed', 0)}",
         f"rejected: {summary.get('rejected', 0)}",
         f"seed_errors: {summary.get('seed_errors', 0)}",
@@ -121,6 +193,9 @@ def run(
     write_json(out_dir / "market_listing_cards.json", {"built_at": built_at, "cards": listings})
     write_json(out_dir / "market_scored_candidates.json", {"built_at": built_at, "candidates": scored_candidates})
     write_json(out_dir / "market_best_offers.json", {"built_at": built_at, "records": best_result.get("records", [])})
+    write_json(out_dir / "market_variant_collapse_audit.json", {"built_at": built_at, "groups": best_result.get("duplicate_groups", [])})
+    _write_variant_collapse_audit_txt(out_dir / "market_variant_collapse_audit.txt", best_result.get("duplicate_groups", []))
+    _write_variant_collapse_audit_csv(out_dir / "market_variant_collapse_audit.csv", best_result.get("duplicate_groups", []))
     write_json(out_dir / "market_discovery_records.json", result)
     write_json(out_dir / "seed_url_report.json", {"built_at": built_at, "reports": source_reports})
     _write_seed_report(out_dir / "seed_url_report.txt", source_reports)
