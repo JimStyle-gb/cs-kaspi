@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+import re
 from typing import Any
 
 from .common import (
@@ -15,6 +16,19 @@ from .common import (
     template_key_for_category,
     text_blob,
 )
+
+
+def _temperature_bounds(specs: dict[str, Any], blob: str, *, default_min: int, default_max: int) -> tuple[Any, Any]:
+    """Берёт температуру из specs/range без угадывания из случайных чисел."""
+    min_value = specs.get("temperature_min_c") or specs.get("min_temperature_c")
+    max_value = specs.get("temperature_max_c") or specs.get("max_temperature_c")
+    range_text = str(specs.get("temperature_range_text") or "")
+    if (not min_value or not max_value) and range_text:
+        nums = [float(x.replace(",", ".")) for x in re.findall(r"\d+(?:[\.,]\d+)?", range_text)]
+        if len(nums) >= 2:
+            min_value = min_value or nums[0]
+            max_value = max_value or nums[1]
+    return number(min_value or default_min), number(max_value or default_max)
 
 
 def _air_fryer_row(product: dict[str, Any], template: dict[str, Any]) -> dict[str, Any]:
@@ -45,8 +59,9 @@ def _air_fryer_row(product: dict[str, Any], template: dict[str, Any]) -> dict[st
     put(row, template, "Объем чаши", number(volume))
     put(row, template, "Количество чаш", "2 шт" if two_bowls else "1 шт")
     put(row, template, "Количество автоматических программ", number(programs))
-    put(row, template, "Минимальная температура нагрева", 80)
-    put(row, template, "Максимальная температура нагрева", 200)
+    min_temp, max_temp = _temperature_bounds(specs, blob, default_min=80, default_max=200)
+    put(row, template, "Минимальная температура нагрева", min_temp)
+    put(row, template, "Максимальная температура нагрева", max_temp)
     put(row, template, "Нагревательный элемент", "ТЭН")
     put(row, template, "Количество нагревательных элементов", "2 шт" if two_ten else "1 шт")
     put(row, template, "Особенности", "управление через смартфон" if smartphone else "антипригарное покрытие чаши")
@@ -154,8 +169,9 @@ def _oven_row(product: dict[str, Any], template: dict[str, Any]) -> dict[str, An
     put(row, template, "Мощность духовки", number(specs.get("power_w")))
     put(row, template, "Количество режимов работы", str(number(specs.get("programs") or 6)))
     put(row, template, "Количество конфорок", "отсутствует")
-    put(row, template, "Минимальная температура", 80)
-    put(row, template, "Максимальная температура", 230)
+    min_temp, max_temp = _temperature_bounds(specs, blob, default_min=80, default_max=230)
+    put(row, template, "Минимальная температура", min_temp)
+    put(row, template, "Максимальная температура", max_temp)
     put(row, template, "Конвекция", True)
     put(row, template, "Гриль", True)
     put(row, template, "Вертел", False)
