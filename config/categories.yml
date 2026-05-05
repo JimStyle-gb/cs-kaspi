@@ -4,96 +4,106 @@ categories:
     product_type_ru: аксессуар для аэрогриля
     enabled: true
     kaspi:
-      category_code: ''
+      category_code: Master - Accessories for small kitchen appliances
       category_name_ru: Аксессуары для кухонной техники
       category_path_ru: Бытовая техника / Техника для кухни / Аксессуары для кухонной техники
-      mapping_status: needs_real_kaspi_category_code
+      mapping_status: mapped_reference_verified
       search_hint_ru: аксессуары для аэрогрилей / аксессуары для кухонной техники
-      fill_instruction_ru: Вставить реальный код/ID категории из кабинета Kaspi перед live-create.
-      note: Для решёток, шампуров, форм и других аксессуаров аэрогрилей. Если в Kaspi нет точной категории, выбрать ближайшую разрешённую категорию
-        вручную.
+      fill_instruction_ru: Код категории найден в Kaspi API и сохранён в проекте.
+      note: Для решёток, шампуров, форм и других аксессуаров аэрогрилей. Если в Kaspi нет точной категории, выбрать ближайшую разрешённую категорию вручную.
       template_key: accessories_small_kitchen
       template_master_category: Master - Accessories for small kitchen appliances
       template_source: Accessories-for-small-kitchen-appliances-import-template
       template_mapping_status: template_mapped_from_uploaded_kaspi_xlsm
+      category_reference_title_ru: Аксессуары для кухонной техники
+      category_reference_source: data/kaspi/reference/kaspi_categories.json
   air_fryers:
     name_ru: Аэрогрили
     product_type_ru: аэрогриль
     enabled: true
     kaspi:
-      category_code: ''
+      category_code: Master - Air fryers
       category_name_ru: Аэрогрили
       category_path_ru: Бытовая техника / Техника для кухни / Аэрогрили
-      mapping_status: needs_real_kaspi_category_code
+      mapping_status: mapped_reference_verified
       search_hint_ru: аэрогрили
-      fill_instruction_ru: Вставить реальный код/ID категории из кабинета Kaspi перед live-create.
+      fill_instruction_ru: Код категории найден в Kaspi API и сохранён в проекте.
       note: Для Demiand SANDERS, SANDERS MAX, COMBO, CRISPO, DUOS, LEO, LUNEO, TARVIN, TISON, WAISON и аналогичных аэрогрилей.
       template_key: air_fryers
       template_master_category: Master - Air fryers
       template_source: Air-fryers-import-template
       template_mapping_status: template_mapped_from_uploaded_kaspi_xlsm
+      category_reference_title_ru: Аэрогрили
+      category_reference_source: data/kaspi/reference/kaspi_categories.json
   blenders:
     name_ru: Блендеры-суповарки
     product_type_ru: блендер-суповарка
     enabled: true
     kaspi:
-      category_code: ''
+      category_code: Master - Blenders
       category_name_ru: Блендеры
       category_path_ru: Бытовая техника / Техника для кухни / Блендеры
-      mapping_status: needs_real_kaspi_category_code
+      mapping_status: mapped_reference_verified
       search_hint_ru: блендеры / блендеры-суповарки
-      fill_instruction_ru: Вставить реальный код/ID категории из кабинета Kaspi перед live-create.
+      fill_instruction_ru: Код категории найден в Kaspi API и сохранён в проекте.
       note: Для DeMixi и других блендеров-суповарок Demiand.
       template_key: blenders
       template_master_category: Master - Blenders
       template_source: Blenders-import-template
       template_mapping_status: template_mapped_from_uploaded_kaspi_xlsm
+      category_reference_title_ru: Блендеры
+      category_reference_source: data/kaspi/reference/kaspi_categories.json
   coffee_maker_accessories:
     name_ru: Аксессуары для кофеварок
     product_type_ru: аксессуар для кофеварки
     enabled: true
     kaspi:
-      category_code: ''
+      category_code: Master - Accessories for small kitchen appliances
       category_name_ru: Аксессуары для кофеварок
       category_path_ru: Бытовая техника / Техника для кухни / Аксессуары для кофеварок
-      mapping_status: needs_real_kaspi_category_code
+      mapping_status: mapped_reference_verified
       search_hint_ru: аксессуары для кофеварок / бумажные стаканчики для кофеварки
-      fill_instruction_ru: Вставить реальный код/ID категории из кабинета Kaspi перед live-create.
-      note: Для бумажных стаканчиков и похожих расходников/аксессуаров кофеварок. Если в Kaspi нет отдельной категории, выбрать ближайшую разрешённую
-        категорию вручную.
+      fill_instruction_ru: Код категории найден в Kaspi API и сохранён в проекте.
+      note: Для бумажных стаканчиков и похожих расходников/аксессуаров кофеварок. Если в Kaspi нет отдельной категории, выбрать ближайшую разрешённую категорию вручную.
       template_key: accessories_small_kitchen
       template_master_category: Master - Accessories for small kitchen appliances
       template_source: Accessories-for-small-kitchen-appliances-import-template
       template_mapping_status: template_mapped_from_uploaded_kaspi_xlsm
+      category_reference_title_ru: Аксессуары для кухонной техники
+      category_reference_source: data/kaspi/reference/kaspi_categories.json
   coffee_makers:
     name_ru: Кофеварки
     product_type_ru: кофеварка
     enabled: true
     kaspi:
-      category_code: ''
-      category_name_ru: Кофеварки
-      category_path_ru: Бытовая техника / Техника для кухни / Кофеварки
-      mapping_status: needs_real_kaspi_category_code
+      category_code: Master - Coffee machines
+      category_name_ru: Кофеварки и кофемашины
+      category_path_ru: Бытовая техника / Техника для кухни / Кофеварки и кофемашины
+      mapping_status: mapped_reference_verified_template_missing
       search_hint_ru: кофеварки
-      fill_instruction_ru: Вставить реальный код/ID категории из кабинета Kaspi перед live-create.
-      note: Для кофеварок Demiand, если они появятся в WB-сборе как sellable market offers.
+      fill_instruction_ru: Код категории найден в Kaspi API и сохранён. Для live-create нужен отдельный XLSM-шаблон Kaspi по кофеваркам.
+      note: Код категории сохранён на будущее. Товары этой категории не считать готовыми к XLSM-экспорту, пока не добавлен шаблон кофеварок.
       template_key: ''
       template_master_category: ''
       template_source: ''
       template_mapping_status: needs_uploaded_kaspi_template
+      category_reference_title_ru: Кофеварки и кофемашины
+      category_reference_source: data/kaspi/reference/kaspi_categories.json
   ovens:
     name_ru: Мини-печи
     product_type_ru: мини-печь
     enabled: true
     kaspi:
-      category_code: ''
+      category_code: Master - Tabletop electric ovens
       category_name_ru: Мини-печи
       category_path_ru: Бытовая техника / Техника для кухни / Мини-печи
-      mapping_status: needs_real_kaspi_category_code
+      mapping_status: mapped_reference_verified
       search_hint_ru: мини-печи
-      fill_instruction_ru: Вставить реальный код/ID категории из кабинета Kaspi перед live-create.
+      fill_instruction_ru: Код категории найден в Kaspi API и сохранён в проекте.
       note: Для SOLE и похожих мини-печей Demiand.
       template_key: tabletop_ovens
       template_master_category: Master - Tabletop electric ovens
       template_source: Tabletop-electric-ovens-import-template
       template_mapping_status: template_mapped_from_uploaded_kaspi_xlsm
+      category_reference_title_ru: Настольные электропечи
+      category_reference_source: data/kaspi/reference/kaspi_categories.json
