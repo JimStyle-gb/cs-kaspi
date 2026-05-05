@@ -132,9 +132,15 @@ def _color_priority(profile: dict[str, Any], wanted_color: str | None) -> int:
     return -18
 
 
-def _best_profile(title: str, profiles: list[dict[str, Any]], *, seed_key: Any = None) -> tuple[dict[str, Any] | None, int]:
+def _best_profile(
+    title: str,
+    profiles: list[dict[str, Any]],
+    *,
+    seed_key: Any = None,
+    market_color: str | None = None,
+) -> tuple[dict[str, Any] | None, int]:
     wanted_category = _title_category(title)
-    wanted_color = detect_color(title)
+    wanted_color = detect_color(title, fallback=market_color)
     ranked: list[tuple[int, int, int, int, dict[str, Any]]] = []
     for profile in profiles:
         raw_score = same_model_score(
@@ -200,10 +206,18 @@ def _market_confidence(item: dict[str, Any], match_text: str, profile_confidence
     return profile_confidence, "seed_listing_soft_match"
 
 
+def _market_color(item: dict[str, Any], title: str, fallback: str | None = None) -> str | None:
+    return detect_color(title, fallback=str(item.get("market_color") or fallback or "") or None)
+
+
+def _wb_entity(item: dict[str, Any]) -> str | None:
+    return str(item.get("wb_entity") or "").strip() or None
+
+
 def _market_only_candidate(item: dict[str, Any], title: str, confidence: int, matched_by: str) -> dict[str, Any]:
     category_key = _fallback_category(title, item.get("seed_key"))
     model_key = _model_from_title(title, category_key)
-    color = detect_color(title)
+    color = _market_color(item, title)
     bundle = detect_bundle(title)
     signature = variant_signature(model_key=model_key, color=color, bundle=bundle, title=title)
     market_key = make_market_only_product_key(
@@ -216,6 +230,9 @@ def _market_only_candidate(item: dict[str, Any], title: str, confidence: int, ma
         "seed_key": item.get("seed_key"),
         "seed_url": item.get("seed_url"),
         "market_id": item.get("market_id"),
+        "wb_root": item.get("wb_root"),
+        "wb_supplier_id": item.get("wb_supplier_id"),
+        "wb_entity": item.get("wb_entity"),
         "market_url": item.get("url"),
         "market_title": title,
         "market_image": item.get("image"),
@@ -246,7 +263,7 @@ def _market_only_candidate(item: dict[str, Any], title: str, confidence: int, ma
 
 def _official_enriched_candidate(item: dict[str, Any], profile: dict[str, Any], title: str, confidence: int, matched_by: str) -> dict[str, Any]:
     official_specs = profile.get("official_specs", {}) or {}
-    color = detect_color(title, fallback=official_specs.get("color") or _profile_color(profile))
+    color = _market_color(item, title, fallback=official_specs.get("color") or _profile_color(profile))
     bundle = detect_bundle(title)
     model_key = str(profile.get("model_key") or "")
     signature = variant_signature(model_key=model_key, color=color, bundle=bundle, title=title)
@@ -257,6 +274,9 @@ def _official_enriched_candidate(item: dict[str, Any], profile: dict[str, Any], 
         "seed_key": item.get("seed_key"),
         "seed_url": item.get("seed_url"),
         "market_id": item.get("market_id"),
+        "wb_root": item.get("wb_root"),
+        "wb_supplier_id": item.get("wb_supplier_id"),
+        "wb_entity": item.get("wb_entity"),
         "market_url": item.get("url"),
         "market_title": title,
         "market_image": item.get("image"),
@@ -296,7 +316,12 @@ def score_listing_cards(listings: list[dict[str, Any]], profiles: list[dict[str,
         if not _brand_ok(item, match_text):
             continue
 
-        profile, profile_confidence = _best_profile(match_text, profiles, seed_key=item.get("seed_key"))
+        profile, profile_confidence = _best_profile(
+            match_text,
+            profiles,
+            seed_key=item.get("seed_key"),
+            market_color=str(item.get("market_color") or "") or None,
+        )
         confidence, matched_by = _market_confidence(item, match_text, profile_confidence)
 
         # Official is optional enrichment. If confidence is weak or only category/brand based,
