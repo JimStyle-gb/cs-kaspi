@@ -53,4 +53,6 @@ def run(product: dict[str, Any]) -> dict[str, Any]:
         "kaspi_category_status": status,
         "kaspi_category_live_ready": live_ready,
         "kaspi_category_note": _clean(kaspi_cfg.get("note")),
+        "kaspi_category_search_hint": _clean(kaspi_cfg.get("search_hint_ru")),
+        "kaspi_category_fill_instruction": _clean(kaspi_cfg.get("fill_instruction_ru")),
     }
