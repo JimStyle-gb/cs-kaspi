@@ -17,11 +17,12 @@ def _create_item(item: dict[str, Any]) -> dict[str, Any]:
     sku, sku_source = delivery_sku(item)
     attributes = safe_dict(item.get("kaspi_attributes"))
     images = safe_list(item.get("kaspi_images"))
+    kaspi_category_code = text(item.get("kaspi_category_code")) or None
 
-    live_blockers = [
-        "missing_kaspi_category_code",
-        "kaspi_api_live_sender_not_enabled",
-    ]
+    live_blockers: list[str] = []
+    if not kaspi_category_code:
+        live_blockers.append("missing_kaspi_category_code")
+    live_blockers.append("kaspi_api_live_sender_not_enabled")
     warnings = item_warning_flags(item)
 
     return {
@@ -30,7 +31,10 @@ def _create_item(item: dict[str, Any]) -> dict[str, Any]:
         "product_key": item.get("product_key"),
         "supplier_key": item.get("supplier_key"),
         "category_key": item.get("category_key"),
-        "kaspi_category_code": None,
+        "kaspi_category_code": kaspi_category_code,
+        "kaspi_category_name": item.get("kaspi_category_name"),
+        "kaspi_category_path": item.get("kaspi_category_path"),
+        "kaspi_category_status": item.get("kaspi_category_status"),
         "kaspi_sku": sku,
         "sku_source": sku_source,
         "title": item.get("kaspi_title"),
@@ -56,7 +60,7 @@ def _create_item(item: dict[str, Any]) -> dict[str, Any]:
             "live_ready": False,
             "warnings": warnings,
             "live_blockers": live_blockers,
-            "note": "Draft payload only. Before live API send, map Kaspi category/attributes and approve SKU allowlist.",
+            "note": "Draft payload only. Before live API send, real Kaspi category codes/attributes and SKU allowlist must be approved.",
         },
     }
 
