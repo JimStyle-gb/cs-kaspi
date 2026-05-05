@@ -9,11 +9,25 @@ from scripts.cs_kaspi.core.yaml_io import read_yaml
 COLOR_RU = {
     "black": "черный",
     "white": "белый",
+    "grey": "серый",
+    "gray": "серый",
     "metal": "металлик",
     "beige": "бежевый",
+    "brown": "коричневый",
+    "red": "красный",
+    "green": "зеленый",
+    "blue": "синий",
     "ash": "пепельный",
     "caramel": "карамель",
     "chocolate": "шоколадный",
+}
+
+CATEGORY_TITLE_ALIASES = {
+    "air_fryer_accessories": ("аксессуар", "решет", "решёт", "шампур", "корзин", "форма", "вкладыш", "поддон"),
+    "air_fryers": ("аэрогр", "гриль"),
+    "blenders": ("блендер", "суповар", "измельч"),
+    "coffee_makers": ("кофевар", "кофемаш", "стаканчик", "стакан"),
+    "ovens": ("печь", "духов"),
 }
 
 CATEGORY_TITLE_RU = {
@@ -64,6 +78,26 @@ def _contains_word(title: str, word: str) -> bool:
     return word.lower() in title.lower()
 
 
+def _title_has_category_hint(title: str, category_key: str | None, category_name: str) -> bool:
+    text = title.lower().replace("ё", "е")
+    if category_name.lower().replace("ё", "е") in text:
+        return True
+    for alias in CATEGORY_TITLE_ALIASES.get(str(category_key or ""), ()):
+        if alias.lower().replace("ё", "е") in text:
+            return True
+    return False
+
+
+def _color_ru(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    parts = [x for x in raw.replace("/", "_").split("_") if x]
+    if len(parts) > 1:
+        return "/".join(COLOR_RU.get(part, part) for part in parts)
+    return COLOR_RU.get(raw, raw)
+
+
 def _ensure_vaitan_brand(title: str, brand: str) -> str:
     policy = _title_policy()
     prefix = str(policy.get("title_prefix") or "VAITAN").strip()
@@ -87,15 +121,9 @@ def _market_variant_suffix(product: dict[str, Any]) -> str:
     market = product.get("market", {}) or {}
     variant = product.get("market_variant", {}) or {}
     color = market.get("market_color") or variant.get("market_color")
-    bundle = market.get("market_bundle") or variant.get("market_bundle")
-    parts: list[str] = []
-    if color:
-        parts.append(COLOR_RU.get(str(color), str(color)))
-    if bundle:
-        clean_bundle = str(bundle).replace("_", " ")
-        if clean_bundle.lower() not in {"none", "null"}:
-            parts.append(f"комплект {clean_bundle}")
-    return normalize_spaces(" ".join(parts))
+    # For title uniqueness, append only real visible attributes such as color.
+    # Do not append internal bundle slugs like "gril", because they make titles ugly.
+    return normalize_spaces(_color_ru(color)) if color else ""
 
 
 def run(product: dict[str, Any]) -> str:
@@ -110,9 +138,13 @@ def run(product: dict[str, Any]) -> str:
 
     if market_title:
         title = normalize_spaces(str(market_title))
-        category_name = CATEGORY_TITLE_RU.get(product.get("category_key"), "товар")
-        if category_name and not _contains_word(title, category_name):
+        category_key = product.get("category_key")
+        category_name = CATEGORY_TITLE_RU.get(category_key, "товар")
+        if category_name and not _title_has_category_hint(title, str(category_key), category_name):
             title = normalize_spaces(f"{title} {category_name}")
+        suffix = _market_variant_suffix(product)
+        if suffix and suffix.lower() not in title.lower():
+            title = normalize_spaces(f"{title} {suffix}")
         title = _ensure_vaitan_brand(title, str(brand))
         return limit_text(title, max_length)
 
@@ -133,9 +165,10 @@ def run(product: dict[str, Any]) -> str:
     if not title:
         source_title = official.get("title_official") or product.get("listing_snapshot", {}).get("title_listing") or "Товар"
         source_title = _clean_source_title(str(source_title), str(brand))
-        category_name = CATEGORY_TITLE_RU.get(product.get("category_key"), "товар")
+        category_key = product.get("category_key")
+        category_name = CATEGORY_TITLE_RU.get(category_key, "товар")
         title = normalize_spaces(f"{brand.title()} {source_title}")
-        if category_name and not _contains_word(title, category_name):
+        if category_name and not _title_has_category_hint(title, str(category_key), category_name):
             title = normalize_spaces(f"{title} {category_name}")
 
     suffix = _market_variant_suffix(product)
