@@ -19,6 +19,12 @@ def _seed_reports() -> list[dict[str, Any]]:
     return data.get("reports", []) if isinstance(data, dict) else []
 
 
+def _wb_missing_audit() -> dict[str, Any]:
+    discovery_dir = path_from_config("artifacts_market_discovery_dir")
+    data = read_json(discovery_dir / "wb_missing_products_audit.json", default={})
+    return data if isinstance(data, dict) else {}
+
+
 def _txt_report(report: dict[str, Any]) -> str:
     lines = [
         "CS-Kaspi v7 WB-only check report",
@@ -28,6 +34,7 @@ def _txt_report(report: dict[str, Any]) -> str:
         f"cosmetic_count: {report.get('cosmetic_count')}",
         f"market_seed_errors: {report.get('market_seed_errors')}",
         f"market_seed_warnings: {report.get('market_seed_warnings')}",
+        f"wb_missing_products: {report.get('wb_missing_products')}",
         f"market_listing_cards: {report.get('market_listing_cards')}",
         f"market_variants: {report.get('market_variants')}",
         f"duplicates_collapsed: {report.get('duplicates_collapsed')}",
@@ -52,6 +59,13 @@ def _txt_report(report: dict[str, Any]) -> str:
     for item in report.get("seed_reports", []):
         lines.append(f"  {item.get('seed_key')}: status={item.get('status')} cards={item.get('cards_unique_url')} warnings={len(item.get('warnings') or [])} errors={len(item.get('errors') or [])}")
     lines.append("")
+    lines.append("wb_missing_products:")
+    missing = report.get("wb_missing_products_rows", []) or []
+    if not missing:
+        lines.append("  none")
+    for item in missing[:100]:
+        lines.append(f"  {item.get('wb_id')}: {item.get('title')} | {item.get('manual_check_url')}")
+    lines.append("")
     lines.append("problems:")
     for problem in report.get("problems", [])[:300]:
         lines.append(f"  [{problem.get('level')}] {problem.get('product_key')}: {problem.get('message')}")
@@ -69,6 +83,7 @@ def _telegram_text(report: dict[str, Any]) -> str:
         f"Create/Update/Pause смотрите в artifacts/exports",
         f"Critical: {report.get('critical_count')}",
         f"Seed issues: {len(bad_seeds)}",
+        f"WB missing products: {report.get('wb_missing_products')}",
     ]
     for seed in bad_seeds[:10]:
         details = []
@@ -77,6 +92,8 @@ def _telegram_text(report: dict[str, Any]) -> str:
         if seed.get("errors"):
             details.extend(map(str, seed.get("errors") or []))
         lines.append(f"- {seed.get('seed_key')}: {seed.get('status')} cards={seed.get('cards_unique_url')} {' | '.join(details)[:180]}")
+    for item in (report.get("wb_missing_products_rows") or [])[:5]:
+        lines.append(f"- WB пропал: {item.get('title')} | ID {item.get('wb_id')} | {item.get('manual_check_url')}")
     return "\n".join(lines) + "\n"
 
 
@@ -90,6 +107,8 @@ def run() -> dict[str, Any]:
     problems = list(validation.get("problems", []))
     discovery = _market_discovery_summary()
     seed_reports = _seed_reports()
+    wb_missing_audit = _wb_missing_audit()
+    wb_missing_rows = wb_missing_audit.get("missing_products", []) if isinstance(wb_missing_audit, dict) else []
 
     for product in products:
         key = product.get("product_key")
@@ -127,6 +146,8 @@ def run() -> dict[str, Any]:
         "duplicates_collapsed": discovery.get("duplicates_collapsed", 0),
         "market_seed_errors": discovery.get("seed_errors", 0),
         "market_seed_warnings": discovery.get("seed_warnings", 0),
+        "wb_missing_products": int(wb_missing_audit.get("missing_products_count") or 0),
+        "wb_missing_products_rows": wb_missing_rows,
         "seed_reports": seed_reports,
         "problems": problems,
     }
