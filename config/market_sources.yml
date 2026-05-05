@@ -1,6 +1,9 @@
 discovery:
   enabled: true
   mode: wb_json_api_only
+  # Обычно выключено, чтобы artifacts не раздувались HTML/PNG/debug JSON.
+  # Для ручной диагностики WB можно временно поставить true.
+  save_debug_artifacts: false
   no_fallback_search: true
   fetch_product_pages: false
   fail_build_on_seed_error: false
