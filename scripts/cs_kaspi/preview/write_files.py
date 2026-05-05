@@ -22,6 +22,7 @@ def write_preview_txt(path: Path, preview: dict) -> None:
             f"PRODUCT: {p.get('product_key')}",
             f"  supplier: {p.get('supplier_key')}",
             f"  category: {p.get('category_key')} / {p.get('supplier_category_name')}",
+            f"  kaspi_category: {p.get('kaspi_category_code') or '-'} / {p.get('kaspi_category_name')} / {p.get('kaspi_category_status')}",
             f"  official_title: {p.get('official_title')}",
             f"  official_url: {p.get('official_url')}",
             f"  official_price: {p.get('official_price')}",
