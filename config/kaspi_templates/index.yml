@@ -23,3 +23,9 @@ templates:
     source_template_file: Tabletop-electric-ovens-import-template (2).xlsm
     fields_count: 27
     required_count: 10
+  coffee_machines:
+    file: config/kaspi_templates/coffee_machines.yml
+    master_category: Master - Coffee machines
+    source_template_file: Coffee-machines-import-template (1).xlsm
+    fields_count: 45
+    required_count: 12
