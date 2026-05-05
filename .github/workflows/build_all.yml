@@ -13,6 +13,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Restore WB seen-products baseline
+        uses: actions/cache@v4
+        with:
+          path: artifacts/state/wb_seen_products_baseline.json
+          key: cs-kaspi-wb-seen-products-${{ github.run_id }}
+          restore-keys: |
+            cs-kaspi-wb-seen-products-
       - name: Install deps
         run: |
           pip install -r requirements.txt
@@ -21,7 +28,6 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          WB_STORAGE_STATE_B64: ${{ secrets.WB_STORAGE_STATE_B64 }}
         run: python -m scripts.cs_kaspi.commands.build_all
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
