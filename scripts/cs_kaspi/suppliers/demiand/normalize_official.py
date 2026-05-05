@@ -23,6 +23,19 @@ def _number(text: str | None) -> float | None:
     return float(match.group(1).replace(",", "."))
 
 
+def _dimensions_volume_l(text: str | None) -> float | None:
+    """Считает объём камеры в литрах из размеров вида 34 х 32,5 х 9 см."""
+    raw = normalize_spaces(str(text or "").lower().replace("×", "x").replace("х", "x"))
+    nums = re.findall(r"(\d+(?:[\.,]\d+)?)", raw)
+    if len(nums) < 3:
+        return None
+    values = [float(x.replace(",", ".")) for x in nums[:3]]
+    volume_l = values[0] * values[1] * values[2] / 1000
+    if volume_l <= 0:
+        return None
+    return round(volume_l, 1)
+
+
 def _normalize_color(text: str | None) -> str | None:
     value = (text or "").lower()
     if "чер" in value or "black" in value:
@@ -220,10 +233,14 @@ def run(parsed_products_payload: dict[str, Any]) -> dict[str, Any]:
         row["model_key"] = model_key
         row["variant_key"] = variant_key
 
+        volume_l = (
+            _number(specs_raw.get("Объем камеры") or specs_raw.get("Объём") or specs_raw.get("Объем"))
+            or _dimensions_volume_l(specs_raw.get("Внутренние размеры печи"))
+        )
         normalized_specs = {
             "article": article,
             "power_w": _number(specs_raw.get("Мощность")),
-            "volume_l": _number(specs_raw.get("Объем камеры") or specs_raw.get("Объём") or specs_raw.get("Объем")),
+            "volume_l": volume_l,
             "programs": int(_number(specs_raw.get("Количество программ")) or 0) or None,
             "color": _color_from_identity(title, article, specs_raw),
             "control_type": specs_raw.get("Управление"),
@@ -232,7 +249,8 @@ def run(parsed_products_payload: dict[str, Any]) -> dict[str, Any]:
             "delayed_start": specs_raw.get("Отложенный старт"),
             "weight_kg": _number(specs_raw.get("Вес аэрогриля") or specs_raw.get("Вес")),
             "package_dimensions_text": specs_raw.get("Габариты"),
-            "product_dimensions_text": specs_raw.get("Размеры аэрогриля (ДхШхВ)"),
+            "product_dimensions_text": specs_raw.get("Размеры аэрогриля (ДхШхВ)") or specs_raw.get("Внешние размеры печи"),
+            "inner_dimensions_text": specs_raw.get("Внутренние размеры печи"),
             "warranty_text": specs_raw.get("Гарантия"),
             "service_life_text": specs_raw.get("Срок службы"),
             "wifi": True if "wifi" in f"{title} {article or ''}".lower() or "wi-fi" in f"{title} {article or ''}".lower() else None,
