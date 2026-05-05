@@ -13,6 +13,9 @@ CSV_HEADERS = [
     "product_key",
     "supplier_key",
     "category_key",
+    "kaspi_category_code",
+    "kaspi_category_name",
+    "kaspi_category_status",
     "brand",
     "model_key",
     "variant_key",
@@ -82,6 +85,11 @@ def _export_item(product: dict[str, Any], *, action: str) -> dict[str, Any]:
         "supplier_key": product.get("supplier_key"),
         "category_key": product.get("category_key"),
         "supplier_category_name": product.get("supplier_category_name"),
+        "kaspi_category_code": kaspi.get("kaspi_category_code"),
+        "kaspi_category_name": kaspi.get("kaspi_category_name"),
+        "kaspi_category_path": kaspi.get("kaspi_category_path"),
+        "kaspi_category_status": kaspi.get("kaspi_category_status"),
+        "kaspi_category_live_ready": kaspi.get("kaspi_category_live_ready"),
         "brand": product.get("brand"),
         "model_key": product.get("model_key"),
         "variant_key": product.get("variant_key"),
@@ -174,6 +182,98 @@ def _write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
             writer.writerow({key: _text(row.get(key)) for key in CSV_HEADERS})
 
 
+
+def _category_audit_rows(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = _safe_list(plan.get("ready_products")) + _safe_list(plan.get("skipped"))
+    grouped: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    for row in rows:
+        key = (
+            _text(row.get("category_key")) or "missing",
+            _text(row.get("kaspi_category_code")),
+            _text(row.get("kaspi_category_name")),
+            _text(row.get("kaspi_category_status")) or "unknown",
+        )
+        item = grouped.setdefault(
+            key,
+            {
+                "category_key": key[0],
+                "kaspi_category_code": key[1],
+                "kaspi_category_name": key[2],
+                "kaspi_category_status": key[3],
+                "products_total": 0,
+                "ready_products": 0,
+                "skipped_products": 0,
+                "sample_titles": [],
+            },
+        )
+        item["products_total"] += 1
+        if row.get("export_action") in {"create_candidate", "update_candidate"}:
+            item["ready_products"] += 1
+        else:
+            item["skipped_products"] += 1
+        title = _text(row.get("kaspi_title") or row.get("official_title"))
+        if title and len(item["sample_titles"]) < 5:
+            item["sample_titles"].append(title)
+    return sorted(grouped.values(), key=lambda x: (x.get("category_key") or "", x.get("kaspi_category_name") or ""))
+
+
+def _write_category_audit_json(path: Path, plan: dict[str, Any]) -> None:
+    rows = _category_audit_rows(plan)
+    meta = _safe_dict(plan.get("meta"))
+    write_json(
+        path,
+        {
+            "meta": {
+                "built_at": meta.get("built_at"),
+                "note": "Kaspi category codes are draft config values. Empty code means live-create is blocked until real Kaspi code is filled.",
+                "categories": len(rows),
+                "categories_missing_code": sum(1 for row in rows if not row.get("kaspi_category_code")),
+            },
+            "categories": rows,
+        },
+    )
+
+
+def _write_category_audit_txt(path: Path, plan: dict[str, Any]) -> None:
+    rows = _category_audit_rows(plan)
+    lines = [
+        "CS-Kaspi Kaspi category audit",
+        "note: пустой kaspi_category_code = live-create заблокирован до реального кода категории Kaspi",
+        "",
+    ]
+    if not rows:
+        lines.append("no categories")
+    for row in rows:
+        lines.append(
+            f"{row.get('category_key')}: code={row.get('kaspi_category_code') or '-'} | "
+            f"name={row.get('kaspi_category_name') or '-'} | status={row.get('kaspi_category_status')} | "
+            f"ready={row.get('ready_products')} | skipped={row.get('skipped_products')} | total={row.get('products_total')}"
+        )
+        for title in row.get("sample_titles") or []:
+            lines.append(f"  - {title}")
+        lines.append("")
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+
+
+def _write_category_audit_csv(path: Path, plan: dict[str, Any]) -> None:
+    rows = _category_audit_rows(plan)
+    headers = [
+        "category_key",
+        "kaspi_category_code",
+        "kaspi_category_name",
+        "kaspi_category_status",
+        "ready_products",
+        "skipped_products",
+        "products_total",
+        "sample_titles",
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8-sig", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=headers, extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({**row, "sample_titles": " | ".join(row.get("sample_titles") or [])})
+
 def _write_txt(path: Path, plan: dict[str, Any]) -> None:
     meta = _safe_dict(plan.get("meta"))
     create_candidates = _safe_list(plan.get("create_candidates"))
@@ -232,6 +332,9 @@ def _write_files(plan: dict[str, Any]) -> dict[str, str]:
         "skipped_json": out_dir / "kaspi_skipped_products.json",
         "preview_csv": out_dir / "kaspi_export_preview.csv",
         "preview_txt": out_dir / "kaspi_export_preview.txt",
+        "category_audit_json": out_dir / "kaspi_category_audit.json",
+        "category_audit_txt": out_dir / "kaspi_category_audit.txt",
+        "category_audit_csv": out_dir / "kaspi_category_audit.csv",
     }
 
     meta = _safe_dict(plan.get("meta"))
@@ -249,6 +352,9 @@ def _write_files(plan: dict[str, Any]) -> dict[str, str]:
     write_json(paths["skipped_json"], {"meta": meta, "products": skipped})
     _write_csv(paths["preview_csv"], ready_products)
     _write_txt(paths["preview_txt"], plan)
+    _write_category_audit_json(paths["category_audit_json"], plan)
+    _write_category_audit_txt(paths["category_audit_txt"], plan)
+    _write_category_audit_csv(paths["category_audit_csv"], plan)
 
     return {key: _rel(path) for key, path in paths.items()}
 
