@@ -39,14 +39,19 @@ def _int(value: Any, default: int) -> int:
 def _settings() -> dict[str, Any]:
     cfg = read_yaml(ROOT / "config" / "kaspi.yml")
     image_cfg = (cfg.get("image_package") or {}) if isinstance(cfg, dict) else {}
+    max_side_px = _int(image_cfg.get("max_side_px"), 0)
+    if max_side_px < 0:
+        max_side_px = 0
     return {
         "enabled": _bool(image_cfg.get("enabled"), True),
         "download_images": _bool(image_cfg.get("download_images"), True),
         "create_zip": _bool(image_cfg.get("create_zip"), True),
         "keep_unzipped_images": _bool(image_cfg.get("keep_unzipped_images"), False),
         "output_format": "jpg",
-        "jpeg_quality": max(60, min(95, _int(image_cfg.get("jpeg_quality"), 88))),
-        "max_side_px": max(800, min(3000, _int(image_cfg.get("max_side_px"), 1600))),
+        # 0 = не уменьшать фото. Для проекта важнее качество карточки, чем минимальный вес artifact.
+        "max_side_px": max_side_px,
+        # JPG/JPEG из источника сохраняются как есть, без пережатия. Quality применяется только к PNG/WebP/другим форматам.
+        "jpeg_quality": max(85, min(100, _int(image_cfg.get("jpeg_quality"), 95))),
         "max_images_per_product": max(1, min(10, _int(image_cfg.get("max_images_per_product"), 10))),
         "timeout_sec": max(3, _int(image_cfg.get("timeout_sec"), 12)),
         "retries": max(0, min(3, _int(image_cfg.get("retries"), 1))),
@@ -75,12 +80,29 @@ def _safe_sku(value: str) -> str:
     return sku.strip("._-") or "missing_sku"
 
 
-def _to_jpeg_bytes(content: bytes, *, quality: int, max_side_px: int) -> bytes:
-    """Конвертирует любое поддерживаемое фото WB в безопасный JPEG для Kaspi."""
+def _is_jpeg_bytes(content: bytes) -> bool:
+    return len(content) >= 3 and content[:3] == b"\xff\xd8\xff"
+
+
+def _to_jpeg_bytes(content: bytes, *, quality: int, max_side_px: int) -> tuple[bytes, str]:
+    """Готовит фото для Kaspi без лишней потери качества.
+
+    Важное правило проекта:
+    - если источник уже JPG/JPEG, сохраняем байты как есть, без re-encode и без resize;
+    - если источник WebP/PNG/другой формат, конвертируем в JPG с высоким качеством;
+    - max_side_px=0 означает не уменьшать размер изображения.
+    """
+    if _is_jpeg_bytes(content):
+        return content, "source_jpeg_copied_without_reencode"
+
     with Image.open(BytesIO(content)) as image:
         image = ImageOps.exif_transpose(image)
-        if max(image.size) > max_side_px:
+        source_format = (image.format or "image").lower()
+        if max_side_px and max_side_px > 0 and max(image.size) > max_side_px:
             image.thumbnail((max_side_px, max_side_px), Image.Resampling.LANCZOS)
+            resize_detail = f"resized_max_side_{max_side_px}"
+        else:
+            resize_detail = "original_dimensions_kept"
         if image.mode in {"RGBA", "LA"} or (image.mode == "P" and "transparency" in image.info):
             rgba = image.convert("RGBA")
             background = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
@@ -88,8 +110,8 @@ def _to_jpeg_bytes(content: bytes, *, quality: int, max_side_px: int) -> bytes:
         else:
             image = image.convert("RGB")
         out = BytesIO()
-        image.save(out, format="JPEG", quality=quality, optimize=True)
-        return out.getvalue()
+        image.save(out, format="JPEG", quality=quality, optimize=False, subsampling=0)
+        return out.getvalue(), f"converted_from_{source_format}_quality_{quality}_{resize_detail}"
 
 
 def _download(
@@ -116,14 +138,14 @@ def _download(
             if min_bytes and len(content) < min_bytes:
                 return "failed_small_file", None, len(content), f"source_bytes={len(content)}"
             try:
-                jpg = _to_jpeg_bytes(content, quality=jpeg_quality, max_side_px=max_side_px)
+                jpg, detail = _to_jpeg_bytes(content, quality=jpeg_quality, max_side_px=max_side_px)
             except UnidentifiedImageError as exc:
                 return "failed_bad_image", None, len(content), str(exc)
             if min_bytes and len(jpg) < min_bytes:
                 return "failed_small_jpg", None, len(jpg), f"jpg_bytes={len(jpg)}"
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(jpg)
-            return "downloaded", path, len(jpg), "converted_to_jpg"
+            return "downloaded", path, len(jpg), detail
         except Exception as exc:
             last_detail = str(exc)
             if attempt >= retries:
@@ -154,6 +176,9 @@ def write_image_manifest(data: dict[str, Any]) -> dict[str, Path]:
     Собирает Kaspi image package:
     - artifacts/exports/kaspi_images.zip с путями images/<merchant_sku>/01.jpg
     - manifest/queue/summary для аудита.
+
+    Качество не режем: JPG/JPEG источника копируется как есть, WebP/PNG конвертируются
+    в JPG с высоким качеством без уменьшения размера, если max_side_px=0.
 
     По умолчанию распакованная папка artifacts/exports/kaspi_images удаляется после создания ZIP,
     чтобы GitHub artifact не хранил одни и те же фото два раза.
