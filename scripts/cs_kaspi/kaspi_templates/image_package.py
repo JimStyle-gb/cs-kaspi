@@ -3,12 +3,14 @@ from __future__ import annotations
 import csv
 import os
 import re
+import shutil
 import zipfile
+from io import BytesIO
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 import requests
+from PIL import Image, ImageOps, UnidentifiedImageError
 
 from scripts.cs_kaspi.core.json_io import write_json
 from scripts.cs_kaspi.core.paths import ROOT, path_from_config
@@ -41,6 +43,10 @@ def _settings() -> dict[str, Any]:
         "enabled": _bool(image_cfg.get("enabled"), True),
         "download_images": _bool(image_cfg.get("download_images"), True),
         "create_zip": _bool(image_cfg.get("create_zip"), True),
+        "keep_unzipped_images": _bool(image_cfg.get("keep_unzipped_images"), False),
+        "output_format": "jpg",
+        "jpeg_quality": max(60, min(95, _int(image_cfg.get("jpeg_quality"), 88))),
+        "max_side_px": max(800, min(3000, _int(image_cfg.get("max_side_px"), 1600))),
         "max_images_per_product": max(1, min(10, _int(image_cfg.get("max_images_per_product"), 10))),
         "timeout_sec": max(3, _int(image_cfg.get("timeout_sec"), 12)),
         "retries": max(0, min(3, _int(image_cfg.get("retries"), 1))),
@@ -64,28 +70,43 @@ def _split_urls(value: Any, limit: int) -> list[str]:
     return list(dict.fromkeys(urls))[:limit]
 
 
-def _safe_ext(url: str, content_type: str = "") -> str:
-    ct = content_type.lower().split(";", 1)[0].strip()
-    if ct == "image/jpeg":
-        return ".jpg"
-    if ct == "image/png":
-        return ".png"
-    if ct == "image/webp":
-        return ".webp"
-    path = urlparse(url).path.lower()
-    suffix = Path(path).suffix
-    if suffix in {".jpg", ".jpeg", ".png", ".webp"}:
-        return ".jpg" if suffix == ".jpeg" else suffix
-    return ".jpg"
-
-
 def _safe_sku(value: str) -> str:
     sku = re.sub(r"[^0-9A-Za-zА-Яа-я._-]+", "_", value.strip())
     return sku.strip("._-") or "missing_sku"
 
 
-def _download(session: requests.Session, url: str, target_base: Path, timeout: int, retries: int, min_bytes: int) -> tuple[str, Path | None, int, str]:
-    """Скачивает фото и возвращает status/path/size/detail без падения всего build_all."""
+def _to_jpeg_bytes(content: bytes, *, quality: int, max_side_px: int) -> bytes:
+    """Конвертирует любое поддерживаемое фото WB в безопасный JPEG для Kaspi."""
+    with Image.open(BytesIO(content)) as image:
+        image = ImageOps.exif_transpose(image)
+        if max(image.size) > max_side_px:
+            image.thumbnail((max_side_px, max_side_px), Image.Resampling.LANCZOS)
+        if image.mode in {"RGBA", "LA"} or (image.mode == "P" and "transparency" in image.info):
+            rgba = image.convert("RGBA")
+            background = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+            image = Image.alpha_composite(background, rgba).convert("RGB")
+        else:
+            image = image.convert("RGB")
+        out = BytesIO()
+        image.save(out, format="JPEG", quality=quality, optimize=True)
+        return out.getvalue()
+
+
+def _download(
+    session: requests.Session,
+    url: str,
+    target_base: Path,
+    timeout: int,
+    retries: int,
+    min_bytes: int,
+    jpeg_quality: int,
+    max_side_px: int,
+) -> tuple[str, Path | None, int, str]:
+    """Скачивает фото, конвертирует в .jpg и не роняет весь build_all при одной битой ссылке."""
+    path = target_base.with_suffix(".jpg")
+    if path.exists() and path.stat().st_size >= max(min_bytes, 1):
+        return "cached", path, path.stat().st_size, "existing_jpg"
+
     last_detail = ""
     for attempt in range(retries + 1):
         try:
@@ -93,15 +114,16 @@ def _download(session: requests.Session, url: str, target_base: Path, timeout: i
             response.raise_for_status()
             content = response.content or b""
             if min_bytes and len(content) < min_bytes:
-                return "failed_small_file", None, len(content), f"bytes={len(content)}"
-            content_type = response.headers.get("content-type", "")
-            ext = _safe_ext(url, content_type)
-            path = target_base.with_suffix(ext)
-            if path.exists() and path.stat().st_size >= len(content) >= min_bytes:
-                return "cached", path, path.stat().st_size, "existing_file"
+                return "failed_small_file", None, len(content), f"source_bytes={len(content)}"
+            try:
+                jpg = _to_jpeg_bytes(content, quality=jpeg_quality, max_side_px=max_side_px)
+            except UnidentifiedImageError as exc:
+                return "failed_bad_image", None, len(content), str(exc)
+            if min_bytes and len(jpg) < min_bytes:
+                return "failed_small_jpg", None, len(jpg), f"jpg_bytes={len(jpg)}"
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(content)
-            return "downloaded", path, len(content), content_type or "ok"
+            path.write_bytes(jpg)
+            return "downloaded", path, len(jpg), "converted_to_jpg"
         except Exception as exc:
             last_detail = str(exc)
             if attempt >= retries:
@@ -109,7 +131,7 @@ def _download(session: requests.Session, url: str, target_base: Path, timeout: i
     return "failed", None, 0, last_detail
 
 
-def _write_zip(zip_path: Path, images_dir: Path, downloaded_paths: list[Path]) -> None:
+def _write_zip(zip_path: Path, package_dir: Path, downloaded_paths: list[Path]) -> None:
     zip_path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
         if not downloaded_paths:
@@ -117,26 +139,36 @@ def _write_zip(zip_path: Path, images_dir: Path, downloaded_paths: list[Path]) -
             return
         for path in sorted(dict.fromkeys(downloaded_paths)):
             if path.exists() and path.is_file():
-                zf.write(path, path.relative_to(images_dir.parent).as_posix())
+                zf.write(path, path.relative_to(package_dir).as_posix())
+
+
+def _cleanup_unzipped_images(package_dir: Path, keep_unzipped_images: bool, zip_created: bool) -> bool:
+    if keep_unzipped_images or not zip_created or not package_dir.exists():
+        return package_dir.exists()
+    shutil.rmtree(package_dir, ignore_errors=True)
+    return False
 
 
 def write_image_manifest(data: dict[str, Any]) -> dict[str, Path]:
     """
     Собирает Kaspi image package:
-    - artifacts/exports/kaspi_images/images/<merchant_sku>/01.jpg
-    - artifacts/exports/kaspi_images.zip
+    - artifacts/exports/kaspi_images.zip с путями images/<merchant_sku>/01.jpg
     - manifest/queue/summary для аудита.
 
-    Скачивание включено через config/kaspi.yml -> image_package.download_images.
-    Быстрый ручной override:
+    По умолчанию распакованная папка artifacts/exports/kaspi_images удаляется после создания ZIP,
+    чтобы GitHub artifact не хранил одни и те же фото два раза.
+
+    Быстрые override-переменные:
     - CS_KASPI_DOWNLOAD_IMAGES=0 — только manifest/queue без скачивания.
     - CS_KASPI_DOWNLOAD_IMAGES=1 — принудительно скачать фото.
+    - CS_KASPI_KEEP_UNZIPPED_IMAGES=1 — оставить папку kaspi_images для ручной проверки.
     """
     out_dir = path_from_config("artifacts_exports_dir")
     settings = _settings()
     enabled = _env_bool("CS_KASPI_IMAGE_PACKAGE", bool(settings["enabled"]))
     download_enabled = _env_bool("CS_KASPI_DOWNLOAD_IMAGES", bool(settings["download_images"]))
     create_zip = _env_bool("CS_KASPI_CREATE_IMAGES_ZIP", bool(settings["create_zip"]))
+    keep_unzipped_images = _env_bool("CS_KASPI_KEEP_UNZIPPED_IMAGES", bool(settings["keep_unzipped_images"]))
 
     package_dir = out_dir / "kaspi_images"
     images_dir = package_dir / "images"
@@ -158,26 +190,29 @@ def write_image_manifest(data: dict[str, Any]) -> dict[str, Path]:
         "zip_created": False,
         "download_enabled": download_enabled,
         "enabled": enabled,
+        "output_format": "jpg",
+        "keep_unzipped_images": keep_unzipped_images,
+        "unzipped_images_kept": False,
     }
 
     session = requests.Session()
-    session.headers.update({"User-Agent": settings["user_agent"], "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8"})
+    session.headers.update({
+        "User-Agent": settings["user_agent"],
+        "Accept": "image/jpeg,image/png,image/webp,image/*,*/*;q=0.8",
+    })
 
     ready_by_template = data.get("ready_by_template") or {}
     for template_key, payloads in sorted(ready_by_template.items()):
         for payload in payloads:
             row = payload.get("row") or {}
             sku = _safe_sku(_text(row.get("merchant_sku") or row.get("image_code") or payload.get("product_key")))
-            if not sku:
-                continue
             urls = _split_urls(row.get("image_urls"), int(settings["max_images_per_product"]))
             if not urls:
                 continue
             stats["products"] += 1
             for idx, url in enumerate(urls, 1):
                 target_base = images_dir / sku / f"{idx:02d}"
-                source_ext = _safe_ext(url)
-                rel_path = f"images/{sku}/{idx:02d}{source_ext}"
+                rel_path = f"images/{sku}/{idx:02d}.jpg"
                 status = "queued"
                 size_bytes = 0
                 detail = "download_disabled"
@@ -190,6 +225,8 @@ def write_image_manifest(data: dict[str, Any]) -> dict[str, Path]:
                         int(settings["timeout_sec"]),
                         int(settings["retries"]),
                         int(settings["min_bytes"]),
+                        int(settings["jpeg_quality"]),
+                        int(settings["max_side_px"]),
                     )
                     if final_path is not None:
                         rel_path = final_path.relative_to(package_dir).as_posix()
@@ -231,12 +268,13 @@ def write_image_manifest(data: dict[str, Any]) -> dict[str, Path]:
     queue_path.write_text("\n".join(queue_lines).rstrip() + ("\n" if queue_lines else ""), encoding="utf-8")
 
     if enabled and create_zip:
-        _write_zip(zip_path, images_dir, downloaded_paths)
+        _write_zip(zip_path, package_dir, downloaded_paths)
         stats["zip_created"] = True
         stats["zip_size_bytes"] = zip_path.stat().st_size if zip_path.exists() else 0
     else:
         stats["zip_size_bytes"] = 0
 
+    stats["unzipped_images_kept"] = _cleanup_unzipped_images(package_dir, keep_unzipped_images, bool(stats["zip_created"]))
     write_json(summary_path, {"meta": stats, "settings": settings})
     return {
         "images_manifest_csv": manifest_path,
