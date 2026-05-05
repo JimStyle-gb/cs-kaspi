@@ -26,6 +26,16 @@ SEED_CATEGORY_BY_KEY = {
     "wb_demiand_accessories": "air_fryer_accessories",
 }
 
+# WB subject IDs are more reliable than the page/seed category for product type.
+# Example: accessories seed may contain real air fryers, and cooking seed may contain
+# a RAUNG air fryer that would otherwise be wrongly enriched by an official accessory.
+WB_SUBJECT_CATEGORY_BY_ID = {
+    "2678": "air_fryers",              # аэрогрили
+    "614": "blenders",                # блендеры / суповарки
+    "4058": "air_fryer_accessories",  # аксессуары для аэрогрилей
+    "631": "coffee_makers",           # кофейные товары / аксессуары к кофеваркам
+}
+
 CATEGORY_HINTS = {
     "blenders": ("блендер", "суповар", "demixi", "измельч", "смешив"),
     "coffee_makers": ("кофевар", "кофемаш", "капучин", "кофе"),
@@ -61,31 +71,81 @@ def _title_category(title: str) -> str | None:
     return None
 
 
+def _first_clean(*values: Any) -> str | None:
+    for value in values:
+        if value in (None, ""):
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return None
+
+
+def _subject_category(item: dict[str, Any]) -> str | None:
+    raw = item.get("raw") if isinstance(item.get("raw"), dict) else {}
+    raw_wb = raw.get("raw_wb") if isinstance(raw.get("raw_wb"), dict) else {}
+    subject_id = _first_clean(
+        item.get("wb_subject_id"),
+        item.get("subject_id"),
+        raw.get("subject_id"),
+        raw.get("wb_subject_id"),
+        raw_wb.get("subjectId"),
+    )
+    return WB_SUBJECT_CATEGORY_BY_ID.get(str(subject_id or ""))
+
+
+def _entity_category(item: dict[str, Any]) -> str | None:
+    raw = item.get("raw") if isinstance(item.get("raw"), dict) else {}
+    raw_wb = raw.get("raw_wb") if isinstance(raw.get("raw_wb"), dict) else {}
+    entity = _first_clean(item.get("wb_entity"), item.get("entity"), raw.get("entity"), raw_wb.get("entity"))
+    if not entity:
+        return None
+    return _title_category(entity)
+
+
+def _market_category(title: str, item: dict[str, Any]) -> str:
+    # Priority: WB structured subject -> WB entity -> actual title -> seed fallback.
+    # This prevents official accessory cards from hijacking real WB devices like RAUNG DK-1600.
+    return (
+        _subject_category(item)
+        or _entity_category(item)
+        or _title_category(title)
+        or _seed_category(item.get("seed_key"))
+        or "air_fryers"
+    )
+
+
 def _fallback_category(title: str, seed_key: Any) -> str:
     return _title_category(title) or _seed_category(seed_key) or "air_fryers"
 
 
 def _model_from_title(title: str, category_key: str) -> str:
     text = norm_text(title)
-    code = MODEL_CODE_RE.search(text)
-    if code:
-        prefix = code.group(0).lower().replace("дк", "dk")
-        prefix = re.sub(r"[^a-z0-9]+", "_", prefix).strip("_")
-        return prefix[:48]
     aliases = {
+        "sanders max": "sanders_max",
         "demixi": "demixi",
         "tison": "tison",
         "waison": "waison",
-        "sanders max": "sanders_max",
         "sanders": "sanders",
         "combo": "combo",
         "duos": "duos",
         "crispo": "crispo",
         "luneo": "luneo",
         "tarvin": "tarvin",
+        "raung": "raung",
         "sole": "sole",
         "leo": "leo",
     }
+    # For devices, model name is better than a bare DK code. For accessories, AA code is stronger.
+    if category_key != "air_fryer_accessories":
+        for key, value in aliases.items():
+            if key in text:
+                return value
+    code = MODEL_CODE_RE.search(text)
+    if code:
+        prefix = code.group(0).lower().replace("дк", "dk")
+        prefix = re.sub(r"[^a-z0-9]+", "_", prefix).strip("_")
+        return prefix[:48]
     for key, value in aliases.items():
         if key in text:
             return value
@@ -138,8 +198,9 @@ def _best_profile(
     *,
     seed_key: Any = None,
     market_color: str | None = None,
+    market_category: str | None = None,
 ) -> tuple[dict[str, Any] | None, int]:
-    wanted_category = _title_category(title)
+    wanted_category = market_category or _title_category(title)
     wanted_color = detect_color(title, fallback=market_color)
     ranked: list[tuple[int, int, int, int, dict[str, Any]]] = []
     for profile in profiles:
@@ -183,6 +244,16 @@ def _strong_profile_evidence(title: str, profile: dict[str, Any]) -> bool:
             return True
     return False
 
+
+def _profile_category_compatible(profile: dict[str, Any] | None, market_category: str | None) -> bool:
+    if not profile or not market_category:
+        return True
+    profile_category = profile.get("category_key")
+    if not profile_category:
+        return True
+    return str(profile_category) == str(market_category)
+
+
 def _brand_ok(item: dict[str, Any], match_text: str) -> bool:
     brand = str(item.get("brand") or "")
     return is_demiand_text(match_text) or is_demiand_text(brand) or brand.strip().lower() == "demiand"
@@ -215,7 +286,7 @@ def _wb_entity(item: dict[str, Any]) -> str | None:
 
 
 def _market_only_candidate(item: dict[str, Any], title: str, confidence: int, matched_by: str) -> dict[str, Any]:
-    category_key = _fallback_category(title, item.get("seed_key"))
+    category_key = _market_category(title, item)
     model_key = _model_from_title(title, category_key)
     color = _market_color(item, title)
     bundle = detect_bundle(title)
@@ -263,6 +334,7 @@ def _market_only_candidate(item: dict[str, Any], title: str, confidence: int, ma
 
 def _official_enriched_candidate(item: dict[str, Any], profile: dict[str, Any], title: str, confidence: int, matched_by: str) -> dict[str, Any]:
     official_specs = profile.get("official_specs", {}) or {}
+    category_key = _market_category(title, item) or profile.get("category_key")
     color = _market_color(item, title, fallback=official_specs.get("color") or _profile_color(profile))
     bundle = detect_bundle(title)
     model_key = str(profile.get("model_key") or "")
@@ -287,7 +359,7 @@ def _official_enriched_candidate(item: dict[str, Any], profile: dict[str, Any], 
         "eta_text": item.get("eta_text"),
         "lead_time_days": item.get("lead_time_days"),
         "supplier_key": profile.get("supplier_key"),
-        "category_key": profile.get("category_key"),
+        "category_key": category_key,
         "brand": profile.get("brand") or "DEMIAND",
         "model_key": model_key,
         "base_product_key": base_key,
@@ -316,21 +388,28 @@ def score_listing_cards(listings: list[dict[str, Any]], profiles: list[dict[str,
         if not _brand_ok(item, match_text):
             continue
 
+        market_category = _market_category(title, item)
         profile, profile_confidence = _best_profile(
             match_text,
             profiles,
             seed_key=item.get("seed_key"),
             market_color=str(item.get("market_color") or "") or None,
+            market_category=market_category,
         )
-        confidence, matched_by = _market_confidence(item, match_text, profile_confidence)
+        category_ok = _profile_category_compatible(profile, market_category)
+        confidence_basis = profile_confidence if category_ok else min(profile_confidence, 50)
+        confidence, matched_by = _market_confidence(item, match_text, confidence_basis)
 
-        # Official is optional enrichment. If confidence is weak or only category/brand based,
-        # do not force a wrong official model.
-        if profile and profile_confidence >= minimum and _strong_profile_evidence(match_text, profile):
+        # Official is optional enrichment. If category contradicts WB structured product type,
+        # do not force a wrong official card. Example: WB RAUNG air fryer must not inherit
+        # official AA-109 rack description just because both mention RAUNG DK-1600.
+        if profile and category_ok and profile_confidence >= minimum and _strong_profile_evidence(match_text, profile):
             scored.append(_official_enriched_candidate(item, profile, title, confidence, matched_by))
         elif allow_market_only:
+            if not category_ok:
+                matched_by = "wb_demiand_brand_sellable_variant_official_category_mismatch_ignored"
             scored.append(_market_only_candidate(item, title, confidence, matched_by))
-        elif profile:
+        elif profile and category_ok:
             scored.append(_official_enriched_candidate(item, profile, title, confidence, matched_by))
     return scored
 
