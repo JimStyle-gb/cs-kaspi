@@ -1,0 +1,25 @@
+templates:
+  air_fryers:
+    file: config/kaspi_templates/air_fryers.yml
+    master_category: Master - Air fryers
+    source_template_file: Air-fryers-import-template (2).xlsm
+    fields_count: 35
+    required_count: 22
+  blenders:
+    file: config/kaspi_templates/blenders.yml
+    master_category: Master - Blenders
+    source_template_file: Blenders-import-template (2).xlsm
+    fields_count: 38
+    required_count: 15
+  accessories_small_kitchen:
+    file: config/kaspi_templates/accessories_small_kitchen.yml
+    master_category: Master - Accessories for small kitchen appliances
+    source_template_file: Accessories-for-small-kitchen-appliances-import-template (2).xlsm
+    fields_count: 18
+    required_count: 7
+  tabletop_ovens:
+    file: config/kaspi_templates/tabletop_ovens.yml
+    master_category: Master - Tabletop electric ovens
+    source_template_file: Tabletop-electric-ovens-import-template (2).xlsm
+    fields_count: 27
+    required_count: 10

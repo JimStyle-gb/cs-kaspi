@@ -1,0 +1,48 @@
+defaults:
+  currency: KZT
+  stock_when_market_missing: 0
+  lead_time_days_when_market_missing: 20
+  max_images: 10
+  title_max_length: 120
+
+title_policy:
+  use_vaitan_in_title: true
+  title_prefix: VAITAN
+  uniqueness_goal: own_kaspi_cards_not_attach_to_competitors
+  keep_real_brand: true
+  real_brand_position: after_vaitan
+  include_market_variant_in_title: true
+
+price_policy:
+  source: market_layer
+  market_sources_for_price:
+    - wb
+  forbidden_price_sources:
+    - google
+    - kaspi
+  choose_market_price: lowest_sellable_price_inside_same_variant
+  allow_official_price_as_final: false
+  fallback_price: null
+  markup_percent: 30
+  fixed_add_kzt: 0
+  min_margin_kzt: 0
+  round_to_kzt: 100
+  rounding_mode: floor
+  note: После наценки 30% последние две цифры цены обрезаются до 00, например 199485 -> 199400.
+
+lead_time_policy:
+  source: market_eta
+  copy_market_eta_without_extra_buffer: true
+  safety_buffer_days: 0
+  fallback_days_when_market_eta_missing: 3
+  missing_market_days: 20
+
+delivery:
+  mode: draft_only
+  live_send_enabled: false
+  company: DRAFT_COMPANY
+  merchant_id: DRAFT_MERCHANT_ID
+  store_id: DRAFT_STORE_ID
+  api_create_enabled: false
+  xml_price_stock_enabled: false
+  note: Live delivery is intentionally disabled. Project prepares draft API/XML only.
