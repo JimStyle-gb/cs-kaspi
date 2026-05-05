@@ -23,6 +23,23 @@ def _pick_model_block(spec_data: dict[str, Any], model_key: str | None) -> dict[
     return None
 
 
+def _merge_specs_override(row: dict[str, Any], override: dict[str, Any]) -> None:
+    """Добавляет подтверждённые model_specs в official.specs без guess-логики."""
+    if not override:
+        return
+    official = row.setdefault("official", {})
+    if not isinstance(official, dict):
+        return
+    specs = official.setdefault("specs", {})
+    if not isinstance(specs, dict):
+        specs = {}
+        official["specs"] = specs
+    for key, value in override.items():
+        if value in (None, "", [], {}):
+            continue
+        specs[key] = value
+
+
 def run(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
     result: list[dict[str, Any]] = []
     for product in products:
@@ -32,6 +49,7 @@ def run(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
         spec_data = _load_spec_file(supplier_key, category_key)
         model_block = _pick_model_block(spec_data, row.get("model_key"))
         existing = row.get("model_specs") if isinstance(row.get("model_specs"), dict) else {}
+        specs_override = (model_block or {}).get("known_specs", {}) or existing.get("specs_override", {}) or {}
         row["model_specs"] = {
             **existing,
             "exists": bool(model_block) or bool(existing.get("exists")),
@@ -39,8 +57,9 @@ def run(products: list[dict[str, Any]]) -> list[dict[str, Any]]:
             "canonical_model_name": (model_block or {}).get("canonical_model_name") or existing.get("canonical_model_name"),
             "title_template": (model_block or {}).get("kaspi_identity", {}).get("title_template") or existing.get("title_template"),
             "group_key": (model_block or {}).get("kaspi_identity", {}).get("group_key") or existing.get("group_key"),
-            "specs_override": (model_block or {}).get("known_specs", {}) or existing.get("specs_override", {}),
+            "specs_override": specs_override,
             "content_blocks": (model_block or {}).get("content_defaults", {}) or existing.get("content_blocks", {}),
         }
+        _merge_specs_override(row, specs_override)
         result.append(row)
     return result
