@@ -3,19 +3,59 @@ categories:
     name_ru: Аксессуары для аэрогрилей
     product_type_ru: аксессуар для аэрогриля
     enabled: true
+    kaspi:
+      category_code: ""
+      category_name_ru: Аксессуары для кухонной техники
+      category_path_ru: Бытовая техника / Техника для кухни / Аксессуары для кухонной техники
+      mapping_status: needs_real_kaspi_category_code
+      note: Вставить реальный код/ID категории из кабинета Kaspi перед live-create.
   air_fryers:
     name_ru: Аэрогрили
     product_type_ru: аэрогриль
     enabled: true
+    kaspi:
+      category_code: ""
+      category_name_ru: Аэрогрили
+      category_path_ru: Бытовая техника / Техника для кухни / Аэрогрили
+      mapping_status: needs_real_kaspi_category_code
+      note: Вставить реальный код/ID категории из кабинета Kaspi перед live-create.
   blenders:
-    name_ru: Блендеры
-    product_type_ru: блендер
+    name_ru: Блендеры-суповарки
+    product_type_ru: блендер-суповарка
     enabled: true
+    kaspi:
+      category_code: ""
+      category_name_ru: Блендеры
+      category_path_ru: Бытовая техника / Техника для кухни / Блендеры
+      mapping_status: needs_real_kaspi_category_code
+      note: Вставить реальный код/ID категории из кабинета Kaspi перед live-create.
+  coffee_maker_accessories:
+    name_ru: Аксессуары для кофеварок
+    product_type_ru: аксессуар для кофеварки
+    enabled: true
+    kaspi:
+      category_code: ""
+      category_name_ru: Аксессуары для кофеварок
+      category_path_ru: Бытовая техника / Техника для кухни / Аксессуары для кофеварок
+      mapping_status: needs_real_kaspi_category_code
+      note: Если в Kaspi нет отдельной категории аксессуаров для кофеварок, выбрать ближайшую разрешённую категорию вручную и записать её код сюда.
   coffee_makers:
     name_ru: Кофеварки
     product_type_ru: кофеварка
     enabled: true
+    kaspi:
+      category_code: ""
+      category_name_ru: Кофеварки
+      category_path_ru: Бытовая техника / Техника для кухни / Кофеварки
+      mapping_status: needs_real_kaspi_category_code
+      note: Вставить реальный код/ID категории из кабинета Kaspi перед live-create.
   ovens:
-    name_ru: Печи
-    product_type_ru: печь
+    name_ru: Мини-печи
+    product_type_ru: мини-печь
     enabled: true
+    kaspi:
+      category_code: ""
+      category_name_ru: Мини-печи
+      category_path_ru: Бытовая техника / Техника для кухни / Мини-печи
+      mapping_status: needs_real_kaspi_category_code
+      note: Вставить реальный код/ID категории из кабинета Kaspi перед live-create.
