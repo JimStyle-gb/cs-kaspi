@@ -79,14 +79,14 @@ categories:
       category_code: Master - Coffee machines
       category_name_ru: Кофеварки и кофемашины
       category_path_ru: Бытовая техника / Техника для кухни / Кофеварки и кофемашины
-      mapping_status: mapped_reference_verified_template_missing
+      mapping_status: mapped_reference_verified
       search_hint_ru: кофеварки
-      fill_instruction_ru: Код категории найден в Kaspi API и сохранён. Для live-create нужен отдельный XLSM-шаблон Kaspi по кофеваркам.
-      note: Код категории сохранён на будущее. Товары этой категории не считать готовыми к XLSM-экспорту, пока не добавлен шаблон кофеварок.
-      template_key: ''
-      template_master_category: ''
-      template_source: ''
-      template_mapping_status: needs_uploaded_kaspi_template
+      fill_instruction_ru: Код категории и XLSM-шаблон кофеварок найдены в Kaspi API/шаблонах и сохранены в проекте.
+      note: Для рожковых кофеварок и кофемашин Demiand. Live-ready зависит от WB market-data; без цены/наличия товары остаются wait_market_data.
+      template_key: coffee_machines
+      template_master_category: Master - Coffee machines
+      template_source: Coffee-machines-import-template
+      template_mapping_status: template_mapped_from_uploaded_kaspi_xlsm
       category_reference_title_ru: Кофеварки и кофемашины
       category_reference_source: data/kaspi/reference/kaspi_categories.json
   ovens:
