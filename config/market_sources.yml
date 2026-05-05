@@ -19,6 +19,14 @@ wb_api:
   request_timeout_sec: 45
   max_retries: 2
   polite_sleep_sec: 2
+  # v16: берём union из нескольких WB JSON-источников за один прогон:
+  # captured browser responses + browser fetch + page probe. Это нужно, потому что WB
+  # иногда одному и тому же seed отдаёт разный products-набор.
+  multi_source_union: true
+  browser_fetch_attempts_per_url: 2
+  probe_paginated_urls: true
+  max_api_pages_per_seed: 3
+  direct_requests_fallback: if_browser_empty
 
 browser:
   engine: chromium
