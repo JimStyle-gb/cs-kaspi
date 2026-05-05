@@ -3,79 +3,207 @@ from __future__ import annotations
 import csv
 import os
 import re
+import zipfile
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 import requests
 
-from scripts.cs_kaspi.core.paths import path_from_config
+from scripts.cs_kaspi.core.json_io import write_json
+from scripts.cs_kaspi.core.paths import ROOT, path_from_config
+from scripts.cs_kaspi.core.yaml_io import read_yaml
 
 
 def _text(value: Any) -> str:
     return "" if value is None else str(value)
 
 
-def _split_urls(value: Any) -> list[str]:
+def _bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on", "да"}
+
+
+def _int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return default
+
+
+def _settings() -> dict[str, Any]:
+    cfg = read_yaml(ROOT / "config" / "kaspi.yml")
+    image_cfg = (cfg.get("image_package") or {}) if isinstance(cfg, dict) else {}
+    return {
+        "enabled": _bool(image_cfg.get("enabled"), True),
+        "download_images": _bool(image_cfg.get("download_images"), True),
+        "create_zip": _bool(image_cfg.get("create_zip"), True),
+        "max_images_per_product": max(1, min(10, _int(image_cfg.get("max_images_per_product"), 10))),
+        "timeout_sec": max(3, _int(image_cfg.get("timeout_sec"), 12)),
+        "retries": max(0, min(3, _int(image_cfg.get("retries"), 1))),
+        "min_bytes": max(0, _int(image_cfg.get("min_bytes"), 512)),
+        "user_agent": _text(image_cfg.get("user_agent") or "CS-Kaspi/1.0"),
+    }
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on", "да"}
+
+
+def _split_urls(value: Any, limit: int) -> list[str]:
     raw = _text(value)
     if not raw:
         return []
     urls = [x.strip() for x in re.split(r"[,;\n]+", raw) if x.strip().startswith(("http://", "https://"))]
-    return list(dict.fromkeys(urls))[:10]
+    return list(dict.fromkeys(urls))[:limit]
 
 
-def _safe_ext(url: str) -> str:
+def _safe_ext(url: str, content_type: str = "") -> str:
+    ct = content_type.lower().split(";", 1)[0].strip()
+    if ct == "image/jpeg":
+        return ".jpg"
+    if ct == "image/png":
+        return ".png"
+    if ct == "image/webp":
+        return ".webp"
     path = urlparse(url).path.lower()
     suffix = Path(path).suffix
     if suffix in {".jpg", ".jpeg", ".png", ".webp"}:
-        return suffix
+        return ".jpg" if suffix == ".jpeg" else suffix
     return ".jpg"
 
 
-def _download(url: str, path: Path, timeout: int) -> str:
-    try:
-        response = requests.get(url, timeout=timeout, headers={"User-Agent": "CS-Kaspi/1.0"})
-        response.raise_for_status()
-        if not response.content:
-            return "empty_response"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(response.content)
-        return "downloaded"
-    except Exception as exc:
-        return f"failed:{exc}"
+def _safe_sku(value: str) -> str:
+    sku = re.sub(r"[^0-9A-Za-zА-Яа-я._-]+", "_", value.strip())
+    return sku.strip("._-") or "missing_sku"
+
+
+def _download(session: requests.Session, url: str, target_base: Path, timeout: int, retries: int, min_bytes: int) -> tuple[str, Path | None, int, str]:
+    """Скачивает фото и возвращает status/path/size/detail без падения всего build_all."""
+    last_detail = ""
+    for attempt in range(retries + 1):
+        try:
+            response = session.get(url, timeout=timeout, allow_redirects=True)
+            response.raise_for_status()
+            content = response.content or b""
+            if min_bytes and len(content) < min_bytes:
+                return "failed_small_file", None, len(content), f"bytes={len(content)}"
+            content_type = response.headers.get("content-type", "")
+            ext = _safe_ext(url, content_type)
+            path = target_base.with_suffix(ext)
+            if path.exists() and path.stat().st_size >= len(content) >= min_bytes:
+                return "cached", path, path.stat().st_size, "existing_file"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content)
+            return "downloaded", path, len(content), content_type or "ok"
+        except Exception as exc:
+            last_detail = str(exc)
+            if attempt >= retries:
+                break
+    return "failed", None, 0, last_detail
+
+
+def _write_zip(zip_path: Path, images_dir: Path, downloaded_paths: list[Path]) -> None:
+    zip_path.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        if not downloaded_paths:
+            zf.writestr("README.txt", "No images were downloaded. Check kaspi_images_manifest.csv.\n")
+            return
+        for path in sorted(dict.fromkeys(downloaded_paths)):
+            if path.exists() and path.is_file():
+                zf.write(path, path.relative_to(images_dir.parent).as_posix())
 
 
 def write_image_manifest(data: dict[str, Any]) -> dict[str, Path]:
     """
-    Готовит manifest/queue для Kaspi images/<merchant_sku>/.
+    Собирает Kaspi image package:
+    - artifacts/exports/kaspi_images/images/<merchant_sku>/01.jpg
+    - artifacts/exports/kaspi_images.zip
+    - manifest/queue/summary для аудита.
 
-    По умолчанию реальные фото не скачиваются, чтобы обычный build_all не раздувал artifacts.
-    Для полной image-package сборки включить переменную окружения:
-    CS_KASPI_DOWNLOAD_IMAGES=1
+    Скачивание включено через config/kaspi.yml -> image_package.download_images.
+    Быстрый ручной override:
+    - CS_KASPI_DOWNLOAD_IMAGES=0 — только manifest/queue без скачивания.
+    - CS_KASPI_DOWNLOAD_IMAGES=1 — принудительно скачать фото.
     """
     out_dir = path_from_config("artifacts_exports_dir")
-    images_dir = out_dir / "kaspi_images" / "images"
+    settings = _settings()
+    enabled = _env_bool("CS_KASPI_IMAGE_PACKAGE", bool(settings["enabled"]))
+    download_enabled = _env_bool("CS_KASPI_DOWNLOAD_IMAGES", bool(settings["download_images"]))
+    create_zip = _env_bool("CS_KASPI_CREATE_IMAGES_ZIP", bool(settings["create_zip"]))
+
+    package_dir = out_dir / "kaspi_images"
+    images_dir = package_dir / "images"
     manifest_path = out_dir / "kaspi_images_manifest.csv"
     queue_path = out_dir / "kaspi_images_download_queue.txt"
-    download_enabled = os.environ.get("CS_KASPI_DOWNLOAD_IMAGES", "").strip().lower() in {"1", "true", "yes", "on"}
-    timeout = int(os.environ.get("CS_KASPI_IMAGE_TIMEOUT_SEC", "30") or "30")
+    summary_path = out_dir / "kaspi_images_summary.json"
+    zip_path = out_dir / "kaspi_images.zip"
 
     rows: list[dict[str, Any]] = []
     queue_lines: list[str] = []
+    downloaded_paths: list[Path] = []
+    stats = {
+        "products": 0,
+        "urls_total": 0,
+        "downloaded": 0,
+        "cached": 0,
+        "queued_only": 0,
+        "failed": 0,
+        "zip_created": False,
+        "download_enabled": download_enabled,
+        "enabled": enabled,
+    }
+
+    session = requests.Session()
+    session.headers.update({"User-Agent": settings["user_agent"], "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8"})
+
     ready_by_template = data.get("ready_by_template") or {}
     for template_key, payloads in sorted(ready_by_template.items()):
         for payload in payloads:
             row = payload.get("row") or {}
-            sku = _text(row.get("merchant_sku") or row.get("image_code") or payload.get("product_key")).strip()
+            sku = _safe_sku(_text(row.get("merchant_sku") or row.get("image_code") or payload.get("product_key")))
             if not sku:
                 continue
-            urls = _split_urls(row.get("image_urls"))
+            urls = _split_urls(row.get("image_urls"), int(settings["max_images_per_product"]))
+            if not urls:
+                continue
+            stats["products"] += 1
             for idx, url in enumerate(urls, 1):
-                filename = f"{idx:02d}{_safe_ext(url)}"
-                rel_path = f"images/{sku}/{filename}"
+                target_base = images_dir / sku / f"{idx:02d}"
+                source_ext = _safe_ext(url)
+                rel_path = f"images/{sku}/{idx:02d}{source_ext}"
                 status = "queued"
-                if download_enabled:
-                    status = _download(url, images_dir / sku / filename, timeout)
+                size_bytes = 0
+                detail = "download_disabled"
+                final_path: Path | None = None
+                if enabled and download_enabled:
+                    status, final_path, size_bytes, detail = _download(
+                        session,
+                        url,
+                        target_base,
+                        int(settings["timeout_sec"]),
+                        int(settings["retries"]),
+                        int(settings["min_bytes"]),
+                    )
+                    if final_path is not None:
+                        rel_path = final_path.relative_to(package_dir).as_posix()
+                        downloaded_paths.append(final_path)
+                    if status == "downloaded":
+                        stats["downloaded"] += 1
+                    elif status == "cached":
+                        stats["cached"] += 1
+                    else:
+                        stats["failed"] += 1
+                else:
+                    stats["queued_only"] += 1
+
+                stats["urls_total"] += 1
                 rows.append({
                     "template_key": template_key,
                     "product_key": payload.get("product_key"),
@@ -84,6 +212,8 @@ def write_image_manifest(data: dict[str, Any]) -> dict[str, Path]:
                     "source_url": url,
                     "kaspi_image_path": rel_path,
                     "status": status,
+                    "size_bytes": size_bytes,
+                    "detail": detail,
                 })
                 queue_lines.append(f"{rel_path}\t{url}")
 
@@ -91,12 +221,26 @@ def write_image_manifest(data: dict[str, Any]) -> dict[str, Path]:
     with manifest_path.open("w", encoding="utf-8-sig", newline="") as fh:
         writer = csv.DictWriter(
             fh,
-            fieldnames=["template_key", "product_key", "merchant_sku", "image_index", "source_url", "kaspi_image_path", "status"],
+            fieldnames=[
+                "template_key", "product_key", "merchant_sku", "image_index", "source_url",
+                "kaspi_image_path", "status", "size_bytes", "detail",
+            ],
         )
         writer.writeheader()
         writer.writerows(rows)
     queue_path.write_text("\n".join(queue_lines).rstrip() + ("\n" if queue_lines else ""), encoding="utf-8")
+
+    if enabled and create_zip:
+        _write_zip(zip_path, images_dir, downloaded_paths)
+        stats["zip_created"] = True
+        stats["zip_size_bytes"] = zip_path.stat().st_size if zip_path.exists() else 0
+    else:
+        stats["zip_size_bytes"] = 0
+
+    write_json(summary_path, {"meta": stats, "settings": settings})
     return {
         "images_manifest_csv": manifest_path,
         "images_download_queue_txt": queue_path,
+        "images_summary_json": summary_path,
+        "images_zip": zip_path,
     }
