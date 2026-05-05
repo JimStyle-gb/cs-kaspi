@@ -47,6 +47,7 @@ def _preview_text(summary: dict[str, Any], create_payload: dict[str, Any], price
                 + f"{index}. {row.get('product_key')} | sku={row.get('kaspi_sku')} | "
                 + f"price={row.get('price') or row.get('price_preview')} | "
                 + f"stock={row.get('stock') or row.get('stock_preview')} | "
+                + f"category={row.get('kaspi_category_code') or '-'}:{row.get('kaspi_category_name') or '-'} | "
                 + str(row.get(title_key) or "")
             )
         if len(rows) > limit:
