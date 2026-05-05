@@ -40,6 +40,9 @@ def _slug(value: Any) -> str:
 
 
 def _debug_dir() -> Path | None:
+    discovery_cfg = (market_cfg().get("discovery", {}) or {})
+    if discovery_cfg.get("save_debug_artifacts") is not True:
+        return None
     try:
         path = path_from_config("artifacts_market_discovery_dir") / "debug"
         path.mkdir(parents=True, exist_ok=True)
