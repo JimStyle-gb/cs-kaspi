@@ -9,6 +9,11 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 import requests
 
+try:
+    from playwright.sync_api import sync_playwright
+except Exception:  # pragma: no cover - Playwright is optional at import time.
+    sync_playwright = None
+
 from scripts.cs_kaspi.core.paths import path_from_config
 
 from .seed_config import cfg as market_cfg
@@ -341,13 +346,21 @@ def _card_from_product(product: dict[str, Any], seed: dict[str, Any], api_url: s
     }
 
 
-def _fetch_json(url: str, seed: dict[str, Any], timeout: int) -> tuple[Any, str, int]:
+def _api_response_has_products(text: str) -> bool:
+    raw = text or ""
+    return "products" in raw and ("DEMIAND" in raw or "brandId" in raw or "brand" in raw)
+
+
+def _fetch_json_direct(url: str, seed: dict[str, Any], timeout: int) -> tuple[Any, str, int]:
     headers = {
         "accept": "application/json, text/plain, */*",
         "accept-language": "ru-KZ,ru;q=0.9,en-US;q=0.7,en;q=0.6",
         "cache-control": "no-cache",
         "pragma": "no-cache",
         "referer": str(seed.get("url") or "https://www.wildberries.ru/"),
+        "sec-fetch-dest": "empty",
+        "sec-fetch-mode": "cors",
+        "sec-fetch-site": "same-origin",
         "user-agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -360,6 +373,130 @@ def _fetch_json(url: str, seed: dict[str, Any], timeout: int) -> tuple[Any, str,
     return _decode_json_response(text), text, response.status_code
 
 
+def _fetch_json_browser(url: str, seed: dict[str, Any], timeout: int) -> tuple[Any, str, int, str]:
+    if sync_playwright is None:
+        raise RuntimeError("playwright_is_not_available")
+
+    seed_key = seed.get("seed_key") or seed.get("url") or "seed"
+    browser_timeout_ms = max(20000, int(timeout * 1000))
+    user_agent = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    )
+    captured: list[tuple[str, str, int]] = []
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-blink-features=AutomationControlled",
+            ],
+        )
+        context = browser.new_context(
+            locale="ru-KZ",
+            timezone_id="Asia/Almaty",
+            geolocation={"latitude": 43.238949, "longitude": 76.889709},
+            permissions=["geolocation"],
+            viewport={"width": 1440, "height": 1400},
+            user_agent=user_agent,
+            extra_http_headers={
+                "accept-language": "ru-KZ,ru;q=0.9,en-US;q=0.7,en;q=0.6",
+            },
+        )
+        page = context.new_page()
+
+        def on_response(response: Any) -> None:
+            try:
+                response_url = str(response.url or "")
+                if "/__internal/search/" not in response_url and "/search/" not in response_url:
+                    return
+                if "fbrand=53038" not in response_url and "brand=53038" not in response_url:
+                    return
+                if response.status != 200:
+                    return
+                body = response.text()
+                if _api_response_has_products(body):
+                    captured.append((response_url, body, int(response.status)))
+            except Exception:
+                return
+
+        page.on("response", on_response)
+
+        try:
+            page.goto(str(seed.get("url") or "https://www.wildberries.ru/"), wait_until="domcontentloaded", timeout=browser_timeout_ms)
+            page.wait_for_timeout(2500)
+            for _ in range(10):
+                page.mouse.wheel(0, 1400)
+                page.wait_for_timeout(450)
+            try:
+                _write_debug(seed_key, "browser_page.html", page.content()[:2_000_000])
+                _write_debug(seed_key, "browser_screenshot.png", page.screenshot(full_page=True))
+            except Exception:
+                pass
+
+            best_captured: tuple[str, str, int] | None = None
+            best_count = -1
+            for response_url, body, status in captured:
+                try:
+                    parsed = _decode_json_response(body)
+                    lists = _product_lists(parsed)
+                    count = len(lists[0]) if lists else 0
+                except Exception:
+                    count = 0
+                if count > best_count:
+                    best_count = count
+                    best_captured = (response_url, body, status)
+            if best_captured and best_count > 0:
+                response_url, body, status = best_captured
+                _write_debug(seed_key, "browser_api_url.txt", response_url)
+                return _decode_json_response(body), body, status, "browser_captured_response"
+
+            result = page.evaluate(
+                """async (apiUrl) => {
+                    const response = await fetch(apiUrl, {
+                        method: 'GET',
+                        credentials: 'include',
+                        headers: {
+                            'accept': 'application/json, text/plain, */*',
+                            'cache-control': 'no-cache',
+                            'pragma': 'no-cache'
+                        }
+                    });
+                    const text = await response.text();
+                    return {status: response.status, url: response.url, text};
+                }""",
+                url,
+            )
+            status = int(result.get("status") or 0)
+            text = str(result.get("text") or "")
+            _write_debug(seed_key, "browser_fetch_status.txt", f"{status} {result.get('url') or url}")
+            if status >= 400:
+                _write_debug(seed_key, "browser_fetch_error_body.txt", text[:5000])
+                raise requests.HTTPError(f"browser_fetch_http_{status}")
+            return _decode_json_response(text), text, status, "browser_fetch_after_seed_page"
+        finally:
+            context.close()
+            browser.close()
+
+
+def _fetch_json(url: str, seed: dict[str, Any], timeout: int) -> tuple[Any, str, int, str]:
+    browser_error = ""
+    try:
+        return _fetch_json_browser(url, seed, timeout)
+    except Exception as exc:
+        browser_error = str(exc)
+
+    try:
+        data, text, status = _fetch_json_direct(url, seed, timeout)
+        return data, text, status, "direct_requests_after_browser_failed"
+    except Exception as exc:
+        direct_error = str(exc)
+        raise RuntimeError(f"browser_failed: {browser_error}; direct_failed: {direct_error}") from exc
+
+
 def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     seed_key = seed.get("seed_key") or seed.get("url") or "seed"
     api_cfg = (market_cfg().get("wb_api", {}) or {})
@@ -369,7 +506,7 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
         "source": seed.get("source") or "wb",
         "url": seed.get("url"),
         "api_url_configured": bool(api_url),
-        "fetch_mode": "wb_json_api_products",
+        "fetch_mode": "wb_json_api_products_browser_then_direct",
         "status": "pending",
         "errors": [],
         "warnings": [],
@@ -401,8 +538,9 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
 
     for attempt in range(retries + 1):
         try:
-            data, raw_text, status_code = _fetch_json(forced_url, seed, timeout)
+            data, raw_text, status_code, fetch_method = _fetch_json(forced_url, seed, timeout)
             report["http_status"] = status_code
+            report["fetch_method"] = fetch_method
             break
         except Exception as exc:
             last_error = str(exc)
