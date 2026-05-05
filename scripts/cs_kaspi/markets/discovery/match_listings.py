@@ -33,15 +33,16 @@ WB_SUBJECT_CATEGORY_BY_ID = {
     "2678": "air_fryers",              # аэрогрили
     "614": "blenders",                # блендеры / суповарки
     "4058": "air_fryer_accessories",  # аксессуары для аэрогрилей
-    "631": "coffee_makers",           # кофейные товары / аксессуары к кофеваркам
+    "631": "coffee_maker_accessories", # аксессуары для кофеварок / стаканчики
 }
 
 CATEGORY_HINTS = {
     "blenders": ("блендер", "суповар", "demixi", "измельч", "смешив"),
+    "coffee_maker_accessories": ("стаканчик", "стаканчики", "бумажн", "для кофевар", "для кофемаш"),
     "coffee_makers": ("кофевар", "кофемаш", "капучин", "кофе"),
     "ovens": ("мини печ", "мини-печ", "духов", "печь"),
     "air_fryer_accessories": (
-        "решетка", "решётка", "шампур", "стакан", "стаканчик", "стаканчики", "бумажн",
+        "решетка", "решётка", "шампур",
         "форма", "корзин", "пергамент", "вкладыш", "поддон", "держатель", "клетка", "аксессуар",
     ),
     "air_fryers": ("аэрогр", "air fryer", "аэрофрит", "гриль"),
@@ -64,7 +65,7 @@ def _seed_category(seed_key: Any) -> str | None:
 def _title_category(title: str) -> str | None:
     text = norm_text(title)
     # Accessories must win over generic air-fryer words because accessory titles often contain "для аэрогриля".
-    for category in ("air_fryer_accessories", "blenders", "coffee_makers", "ovens", "air_fryers"):
+    for category in ("coffee_maker_accessories", "air_fryer_accessories", "blenders", "coffee_makers", "ovens", "air_fryers"):
         hints = CATEGORY_HINTS.get(category) or ()
         if any(norm_text(hint) in text for hint in hints):
             return category
@@ -104,15 +105,19 @@ def _entity_category(item: dict[str, Any]) -> str | None:
 
 
 def _market_category(title: str, item: dict[str, Any]) -> str:
-    # Priority: WB structured subject -> WB entity -> actual title -> seed fallback.
-    # This prevents official accessory cards from hijacking real WB devices like RAUNG DK-1600.
-    return (
-        _subject_category(item)
-        or _entity_category(item)
-        or _title_category(title)
-        or _seed_category(item.get("seed_key"))
-        or "air_fryers"
-    )
+    # Priority is intentionally business-safe:
+    # 1) Strong title/product-type signals win for special cases (SOLE mini-oven, DeMixi, стаканчики).
+    # 2) WB structured subject/entity is used when title does not clearly override it.
+    # 3) Seed page is only a fallback because WB pages may contain mixed products.
+    title_category = _title_category(title)
+    subject_category = _subject_category(item)
+    entity_category = _entity_category(item)
+
+    if title_category in {"ovens", "blenders", "coffee_maker_accessories", "coffee_makers"}:
+        return title_category
+    if title_category == "air_fryer_accessories" and subject_category != "air_fryers":
+        return title_category
+    return subject_category or entity_category or title_category or _seed_category(item.get("seed_key")) or "air_fryers"
 
 
 def _fallback_category(title: str, seed_key: Any) -> str:
