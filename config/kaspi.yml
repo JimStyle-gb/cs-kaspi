@@ -46,3 +46,14 @@ delivery:
   api_create_enabled: false
   xml_price_stock_enabled: false
   note: Live delivery is intentionally disabled. Project prepares draft API/XML only.
+
+image_package:
+  enabled: true
+  download_images: true
+  create_zip: true
+  max_images_per_product: 10
+  timeout_sec: 12
+  retries: 1
+  min_bytes: 512
+  user_agent: CS-Kaspi/1.0 (+https://github.com/JimStyle-gb/CS-Kaspi)
+  note: Обычный Build_All собирает images/<merchant_sku>/ и kaspi_images.zip для загрузки фото в Kaspi. Для отключения скачивания установить CS_KASPI_DOWNLOAD_IMAGES=0.
