@@ -1,3 +1,83 @@
 brand: DEMIAND
 category_key: coffee_makers
-models: {}
+models:
+  kf_3500:
+    enabled: true
+    canonical_model_name: DEMIAND RIVO KF-3500
+    kaspi_identity:
+      group_key: coffee_maker_kf_3500
+      title_template: VAITAN Demiand кофеварка рожковая RIVO KF-3500, {color_ru}
+    known_specs:
+      coffee_machine_type: кофеварка
+      coffee_machine_view: рожковая
+      coffee_used: молотый, чалды, капсулы
+      heater_type: термоблок
+      cappuccinator: true
+      cappuccino_preparation: автоматическое
+      coffee_grinder: false
+      drip_stop: false
+      water_tank_l: 1.6
+      milk_tank_l: 0.7
+      case_material: металл/пластик
+      filter_type: многоразовый
+      auto_decalcification: true
+      cups_heating: false
+      display: есть
+      settings: регулировка температуры кофе, контроль крепости кофе
+      indicators: режима работы, необходимости очистки, уровня воды
+      case_features: съемный лоток для сбора капель, контейнер для молока
+      complete_set: рожки для молотого кофе/чалд и капсул Nespresso, фильтры, резервуар для молока, книга бариста, инструкция
+  kf_3100:
+    enabled: true
+    canonical_model_name: DEMIAND LUNO KF-3100
+    kaspi_identity:
+      group_key: coffee_maker_kf_3100
+      title_template: VAITAN Demiand кофеварка рожковая LUNO KF-3100
+    known_specs:
+      coffee_machine_type: кофеварка
+      coffee_machine_view: рожковая
+      coffee_used: молотый, чалды, капсулы
+      heater_type: термоблок
+      cappuccinator: true
+      cappuccino_preparation: автоматическое
+      coffee_grinder: false
+      drip_stop: false
+      water_tank_l: 1.0
+      milk_tank_l: 0.7
+      pressure_bar: 20
+      case_material: металл/пластик
+      filter_type: многоразовый
+      auto_decalcification: true
+      cups_heating: true
+      display: есть
+      settings: регулировка температуры кофе, контроль крепости кофе
+      indicators: режима работы, необходимости очистки, уровня воды
+      case_features: съемный лоток для сбора капель, контейнер для молока
+      complete_set: 4 сменных фильтра для молотого кофе, чалд и капсул Nespresso, резервуар для молока, книга бариста, инструкция
+  kf_3200:
+    enabled: true
+    canonical_model_name: DEMIAND RETRO KF-3200
+    kaspi_identity:
+      group_key: coffee_maker_kf_3200
+      title_template: VAITAN Demiand кофеварка рожковая RETRO KF-3200, {color_ru}
+    known_specs:
+      coffee_machine_type: кофеварка
+      coffee_machine_view: рожковая
+      coffee_used: молотый, чалды, капсулы
+      heater_type: термоблок
+      cappuccinator: true
+      cappuccino_preparation: автоматическое
+      coffee_grinder: false
+      drip_stop: false
+      water_tank_l: 1.2
+      milk_tank_l: 0.5
+      pressure_bar: 20
+      case_material: металл/пластик
+      filter_type: многоразовый
+      auto_decalcification: false
+      cups_heating: true
+      display: есть
+      settings: регулировка температуры кофе, контроль крепости кофе
+      indicators: режима работы, уровня воды
+      case_features: съемный лоток для сбора капель, контейнер для молока
+      complete_set: 3 сменных фильтра для молотого кофе, чалд и капсул Nespresso, резервуар для молока, книга бариста, инструкция
