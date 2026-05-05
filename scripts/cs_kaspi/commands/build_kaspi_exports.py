@@ -90,6 +90,8 @@ def _export_item(product: dict[str, Any], *, action: str) -> dict[str, Any]:
         "kaspi_category_path": kaspi.get("kaspi_category_path"),
         "kaspi_category_status": kaspi.get("kaspi_category_status"),
         "kaspi_category_live_ready": kaspi.get("kaspi_category_live_ready"),
+        "kaspi_category_search_hint": kaspi.get("kaspi_category_search_hint"),
+        "kaspi_category_fill_instruction": kaspi.get("kaspi_category_fill_instruction"),
         "brand": product.get("brand"),
         "model_key": product.get("model_key"),
         "variant_key": product.get("variant_key"),
@@ -204,6 +206,8 @@ def _category_audit_rows(plan: dict[str, Any]) -> list[dict[str, Any]]:
                 "ready_products": 0,
                 "skipped_products": 0,
                 "sample_titles": [],
+                "search_hint": row.get("kaspi_category_search_hint"),
+                "fill_instruction": row.get("kaspi_category_fill_instruction"),
             },
         )
         item["products_total"] += 1
@@ -274,6 +278,88 @@ def _write_category_audit_csv(path: Path, plan: dict[str, Any]) -> None:
         for row in rows:
             writer.writerow({**row, "sample_titles": " | ".join(row.get("sample_titles") or [])})
 
+
+def _category_todo_rows(plan: dict[str, Any]) -> list[dict[str, Any]]:
+    ready_rows = _safe_list(plan.get("ready_products"))
+    grouped: dict[str, dict[str, Any]] = {}
+    for row in ready_rows:
+        category_key = _text(row.get("category_key")) or "missing"
+        if row.get("kaspi_category_code"):
+            continue
+        item = grouped.setdefault(
+            category_key,
+            {
+                "category_key": category_key,
+                "kaspi_category_name": _text(row.get("kaspi_category_name")) or category_key,
+                "kaspi_category_status": _text(row.get("kaspi_category_status")) or "needs_real_kaspi_category_code",
+                "ready_products": 0,
+                "products_total": 0,
+                "field_to_fill": f"config/categories.yml -> categories.{category_key}.kaspi.category_code",
+                "current_value": "",
+                "manual_action": _text(row.get("kaspi_category_fill_instruction")) or "Вставить реальный код/ID категории из кабинета Kaspi перед live-create.",
+                "search_hint": _text(row.get("kaspi_category_search_hint")) or _text(row.get("kaspi_category_name")) or category_key,
+                "sample_titles": [],
+            },
+        )
+        item["ready_products"] += 1
+        item["products_total"] += 1
+        title = _text(row.get("kaspi_title") or row.get("official_title"))
+        if title and len(item["sample_titles"]) < 8:
+            item["sample_titles"].append(title)
+    return sorted(grouped.values(), key=lambda x: (x.get("category_key") or ""))
+
+def _write_category_todo_json(path: Path, plan: dict[str, Any]) -> None:
+    rows = _category_todo_rows(plan)
+    meta = _safe_dict(plan.get("meta"))
+    write_json(
+        path,
+        {
+            "meta": {
+                "built_at": meta.get("built_at"),
+                "todo_categories": len(rows),
+                "note": "Заполнить category_code в config/categories.yml. Пустые коды блокируют live-create, но не мешают draft preview.",
+            },
+            "todo": rows,
+        },
+    )
+
+
+def _write_category_todo_txt(path: Path, plan: dict[str, Any]) -> None:
+    rows = _category_todo_rows(plan)
+    lines = [
+        "CS-Kaspi Kaspi category codes TODO",
+        "Задача: заполнить реальные коды категорий Kaspi в config/categories.yml.",
+        "Пока category_code пустой, live-create заблокирован через missing_kaspi_category_code.",
+        "",
+    ]
+    if not rows:
+        lines.append("todo: none")
+    for idx, row in enumerate(rows, 1):
+        lines.append(f"{idx}. {row.get('category_key')} — {row.get('kaspi_category_name')}")
+        lines.append(f"   ready_products: {row.get('ready_products')}")
+        lines.append(f"   fill: {row.get('field_to_fill')}")
+        lines.append(f"   search_hint: {row.get('search_hint')}")
+        lines.append("   sample_titles:")
+        for title in row.get("sample_titles") or []:
+            lines.append(f"     - {title}")
+        lines.append("")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+
+
+def _write_category_todo_csv(path: Path, plan: dict[str, Any]) -> None:
+    rows = _category_todo_rows(plan)
+    headers = [
+        "category_key", "kaspi_category_name", "kaspi_category_status", "ready_products",
+        "products_total", "field_to_fill", "current_value", "manual_action", "search_hint", "sample_titles",
+    ]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8-sig", newline="") as fh:
+        writer = csv.DictWriter(fh, fieldnames=headers, extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({**row, "sample_titles": " | ".join(row.get("sample_titles") or [])})
+
 def _write_txt(path: Path, plan: dict[str, Any]) -> None:
     meta = _safe_dict(plan.get("meta"))
     create_candidates = _safe_list(plan.get("create_candidates"))
@@ -335,6 +421,9 @@ def _write_files(plan: dict[str, Any]) -> dict[str, str]:
         "category_audit_json": out_dir / "kaspi_category_audit.json",
         "category_audit_txt": out_dir / "kaspi_category_audit.txt",
         "category_audit_csv": out_dir / "kaspi_category_audit.csv",
+        "category_todo_json": out_dir / "kaspi_category_codes_todo.json",
+        "category_todo_txt": out_dir / "kaspi_category_codes_todo.txt",
+        "category_todo_csv": out_dir / "kaspi_category_codes_todo.csv",
     }
 
     meta = _safe_dict(plan.get("meta"))
@@ -355,6 +444,9 @@ def _write_files(plan: dict[str, Any]) -> dict[str, str]:
     _write_category_audit_json(paths["category_audit_json"], plan)
     _write_category_audit_txt(paths["category_audit_txt"], plan)
     _write_category_audit_csv(paths["category_audit_csv"], plan)
+    _write_category_todo_json(paths["category_todo_json"], plan)
+    _write_category_todo_txt(paths["category_todo_txt"], plan)
+    _write_category_todo_csv(paths["category_todo_csv"], plan)
 
     return {key: _rel(path) for key, path in paths.items()}
 
