@@ -9,19 +9,30 @@ _WORD_RE = re.compile(r"[^a-z0-9а-яё]+", re.IGNORECASE)
 
 COLOR_WORDS = {
     "black": "black", "черный": "black", "чёрный": "black", "черн": "black",
-    "white": "white", "белый": "white", "бел": "white",
-    "metal": "metal", "металл": "metal", "металлик": "metal", "silver": "metal", "серебро": "metal",
-    "beige": "beige", "беж": "beige", "бежевый": "beige",
+    "white": "white", "белый": "white", "белая": "white", "бел": "white",
+    "grey": "grey", "gray": "grey", "серый": "grey", "серая": "grey", "сер": "grey",
+    "metal": "metal", "металл": "metal", "металлик": "metal", "silver": "metal", "серебро": "metal", "серебристый": "metal",
+    "beige": "beige", "беж": "beige", "бежевый": "beige", "бежевая": "beige",
+    "brown": "brown", "коричневый": "brown", "коричневая": "brown", "коричнев": "brown",
+    "red": "red", "красный": "red", "красная": "red",
+    "green": "green", "зеленый": "green", "зелёный": "green", "зеленая": "green", "зелёная": "green",
+    "blue": "blue", "синий": "blue", "синяя": "blue", "голубой": "blue",
     "ash": "ash", "пепельный": "ash", "пепел": "ash",
     "caramel": "caramel", "карамель": "caramel",
     "chocolate": "chocolate", "шоколад": "chocolate",
 }
 
+_COLOR_ORDER = [
+    "black", "white", "grey", "metal", "beige", "brown", "red", "green", "blue",
+    "ash", "caramel", "chocolate",
+]
+
 BUNDLE_HINTS = [
     "шампур", "шампуры", "набор", "комплект", "аксессуар", "аксессуары",
     "решетка", "решётка", "клетка", "тост", "форма", "пергамент", "корзина",
     "две чаши", "2 чаш", "двумя чаш", "сковород", "гриль", "чаша", "противень",
-    "стаканчик", "стаканчики", "фильтр", "поддон", "вкладыш", "вкладыши",
+    "стаканчик", "стаканчики", "стакан", "стаканы", "фильтр", "поддон", "вкладыш", "вкладыши",
+    "4 шампур", "5 шампур", "2 тэна", "2 тэн", "два тэна", "двумя тен",
 ]
 
 TYPE_HINTS = {
@@ -63,15 +74,28 @@ def is_demiand_text(value: Any) -> bool:
 
 def model_tokens(model_key: str) -> set[str]:
     raw = str(model_key or "").replace("_", " ")
-    stop = {"wifi", "wi", "fi", "white", "black", "metal", "beige", "ash", "caramel", "chocolate"}
+    stop = {"wifi", "wi", "fi", "white", "black", "grey", "metal", "beige", "ash", "caramel", "chocolate"}
     return {t for t in tokens(raw) if t not in stop}
 
 
-def detect_color(title: str, fallback: str | None = None) -> str | None:
-    title_tokens = set(norm_text(title).split())
+def _find_colors(value: Any) -> list[str]:
+    source_tokens = set(norm_text(value).split())
+    found: list[str] = []
     for word, key in COLOR_WORDS.items():
-        if norm_text(word) in title_tokens:
-            return key
+        if norm_text(word) in source_tokens and key not in found:
+            found.append(key)
+    found.sort(key=lambda x: _COLOR_ORDER.index(x) if x in _COLOR_ORDER else 999)
+    return found
+
+
+def detect_color(title: str, fallback: str | None = None) -> str | None:
+    # Title color wins; WB API color is used as fallback when title has no explicit color.
+    title_colors = _find_colors(title)
+    if title_colors:
+        return "_".join(title_colors[:3])
+    fallback_colors = _find_colors(fallback)
+    if fallback_colors:
+        return "_".join(fallback_colors[:3])
     return fallback or None
 
 
@@ -80,7 +104,7 @@ def detect_bundle(title: str) -> str | None:
     found = [hint for hint in BUNDLE_HINTS if norm_text(hint) in text]
     if not found:
         return None
-    return "_".join(slugify_ascii(x) for x in found[:7] if x)
+    return "_".join(slugify_ascii(x) for x in found[:10] if x)
 
 
 def category_score(title: str, category_key: str | None) -> int:
@@ -123,10 +147,21 @@ def title_fingerprint(title: str | None) -> str:
     return slugify_ascii(" ".join(words))[:72] or "variant"
 
 
-def variant_signature(*, model_key: str, color: str | None, bundle: str | None, title: str | None = None) -> str:
+def variant_signature(
+    *,
+    model_key: str,
+    color: str | None,
+    bundle: str | None,
+    title: str | None = None,
+    wb_entity: str | None = None,
+) -> str:
+    # The signature is intentionally strict enough to keep sellable WB variations separate.
+    # Same exact variant from several WB cards/sellers still collapses by this key; lowest price wins later.
     parts = [slugify_ascii(model_key)]
     if color:
         parts.append(slugify_ascii(color))
+    if wb_entity:
+        parts.append(slugify_ascii(wb_entity)[:32])
     if bundle:
         parts.append(slugify_ascii(bundle))
     if title:
@@ -179,8 +214,6 @@ def same_model_score(*, title: str, brand: str, model_key: str, category_key: st
 
 
 def make_market_product_key(*, base_product_key: str, signature: str) -> str:
-    # Same exact WB variant from duplicated WB listings collapses by this key.
-    # Different colors/sets/bundles/accessories keep different title fingerprints.
     key = f"{base_product_key}__mv_{slugify_ascii(signature)[:80]}"
     return slugify_ascii(key)[:118]
 
