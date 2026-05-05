@@ -8,7 +8,9 @@ categories:
       category_name_ru: Аксессуары для кухонной техники
       category_path_ru: Бытовая техника / Техника для кухни / Аксессуары для кухонной техники
       mapping_status: needs_real_kaspi_category_code
-      note: Вставить реальный код/ID категории из кабинета Kaspi перед live-create.
+      search_hint_ru: аксессуары для аэрогрилей / аксессуары для кухонной техники
+      fill_instruction_ru: Вставить реальный код/ID категории из кабинета Kaspi перед live-create.
+      note: Для решёток, шампуров, форм и других аксессуаров аэрогрилей. Если в Kaspi нет точной категории, выбрать ближайшую разрешённую категорию вручную.
   air_fryers:
     name_ru: Аэрогрили
     product_type_ru: аэрогриль
@@ -18,7 +20,9 @@ categories:
       category_name_ru: Аэрогрили
       category_path_ru: Бытовая техника / Техника для кухни / Аэрогрили
       mapping_status: needs_real_kaspi_category_code
-      note: Вставить реальный код/ID категории из кабинета Kaspi перед live-create.
+      search_hint_ru: аэрогрили
+      fill_instruction_ru: Вставить реальный код/ID категории из кабинета Kaspi перед live-create.
+      note: Для Demiand SANDERS, SANDERS MAX, COMBO, CRISPO, DUOS, LEO, LUNEO, TARVIN, TISON, WAISON и аналогичных аэрогрилей.
   blenders:
     name_ru: Блендеры-суповарки
     product_type_ru: блендер-суповарка
@@ -28,7 +32,9 @@ categories:
       category_name_ru: Блендеры
       category_path_ru: Бытовая техника / Техника для кухни / Блендеры
       mapping_status: needs_real_kaspi_category_code
-      note: Вставить реальный код/ID категории из кабинета Kaspi перед live-create.
+      search_hint_ru: блендеры / блендеры-суповарки
+      fill_instruction_ru: Вставить реальный код/ID категории из кабинета Kaspi перед live-create.
+      note: Для DeMixi и других блендеров-суповарок Demiand.
   coffee_maker_accessories:
     name_ru: Аксессуары для кофеварок
     product_type_ru: аксессуар для кофеварки
@@ -38,7 +44,9 @@ categories:
       category_name_ru: Аксессуары для кофеварок
       category_path_ru: Бытовая техника / Техника для кухни / Аксессуары для кофеварок
       mapping_status: needs_real_kaspi_category_code
-      note: Если в Kaspi нет отдельной категории аксессуаров для кофеварок, выбрать ближайшую разрешённую категорию вручную и записать её код сюда.
+      search_hint_ru: аксессуары для кофеварок / бумажные стаканчики для кофеварки
+      fill_instruction_ru: Вставить реальный код/ID категории из кабинета Kaspi перед live-create.
+      note: Для бумажных стаканчиков и похожих расходников/аксессуаров кофеварок. Если в Kaspi нет отдельной категории, выбрать ближайшую разрешённую категорию вручную.
   coffee_makers:
     name_ru: Кофеварки
     product_type_ru: кофеварка
@@ -48,7 +56,9 @@ categories:
       category_name_ru: Кофеварки
       category_path_ru: Бытовая техника / Техника для кухни / Кофеварки
       mapping_status: needs_real_kaspi_category_code
-      note: Вставить реальный код/ID категории из кабинета Kaspi перед live-create.
+      search_hint_ru: кофеварки
+      fill_instruction_ru: Вставить реальный код/ID категории из кабинета Kaspi перед live-create.
+      note: Для кофеварок Demiand, если они появятся в WB-сборе как sellable market offers.
   ovens:
     name_ru: Мини-печи
     product_type_ru: мини-печь
@@ -58,4 +68,6 @@ categories:
       category_name_ru: Мини-печи
       category_path_ru: Бытовая техника / Техника для кухни / Мини-печи
       mapping_status: needs_real_kaspi_category_code
-      note: Вставить реальный код/ID категории из кабинета Kaspi перед live-create.
+      search_hint_ru: мини-печи
+      fill_instruction_ru: Вставить реальный код/ID категории из кабинета Kaspi перед live-create.
+      note: Для SOLE и похожих мини-печей Demiand.
