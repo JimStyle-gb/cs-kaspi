@@ -328,6 +328,28 @@ def _extract_scoped_eta(text: str, title: str) -> str | None:
             values.append(eta)
     return values[0] if values else None
 
+def _raw_wb_value(raw: dict[str, Any], key: str) -> Any:
+    raw_wb = raw.get("raw_wb") if isinstance(raw.get("raw_wb"), dict) else {}
+    return raw.get(key) if raw.get(key) is not None else raw_wb.get(key)
+
+
+def _raw_wb_color(raw: dict[str, Any]) -> str | None:
+    for key in ("market_color_raw", "color_text", "market_color", "color"):
+        value = raw.get(key)
+        if value:
+            return _clean_text(value)
+    raw_wb = raw.get("raw_wb") if isinstance(raw.get("raw_wb"), dict) else {}
+    colors = raw_wb.get("colors")
+    values: list[str] = []
+    if isinstance(colors, list):
+        for color in colors:
+            if isinstance(color, dict):
+                name = _clean_text(color.get("name"))
+                if name and name not in values:
+                    values.append(name)
+    return ", ".join(values) or None
+
+
 def normalize_card(raw: dict[str, Any]) -> dict[str, Any]:
     raw_text = html.unescape(str(raw.get("container_text") or ""))
     text = _clean_text(raw_text)
@@ -362,6 +384,10 @@ def normalize_card(raw: dict[str, Any]) -> dict[str, Any]:
     eta_text = _clean_text(raw.get("eta_text")) or _extract_scoped_eta(raw_text, title) or extract_eta_text(raw_text)
     url = raw.get("url") or raw.get("href")
     market_id = raw.get("market_id") or url
+    market_color = _raw_wb_color(raw)
+    wb_root = _raw_wb_value(raw, "root") or _raw_wb_value(raw, "wb_root")
+    wb_supplier_id = _raw_wb_value(raw, "supplierId") or _raw_wb_value(raw, "supplier_id")
+    wb_entity = _clean_text(_raw_wb_value(raw, "entity") or _raw_wb_value(raw, "wb_entity"))
     available = raw.get("available")
     if available is None:
         available = bool(price) if stock is None else stock > 0
@@ -374,6 +400,13 @@ def normalize_card(raw: dict[str, Any]) -> dict[str, Any]:
         "title": title,
         "url": url,
         "image": raw.get("image"),
+        "market_color": market_color,
+        "wb_root": str(wb_root) if wb_root is not None else None,
+        "wb_supplier_id": str(wb_supplier_id) if wb_supplier_id is not None else None,
+        "wb_supplier": _clean_text(raw.get("supplier") or _raw_wb_value(raw, "supplier")),
+        "wb_entity": wb_entity or None,
+        "wb_subject_id": str(_raw_wb_value(raw, "subjectId") or _raw_wb_value(raw, "subject_id") or "") or None,
+        "wb_subject_parent_id": str(_raw_wb_value(raw, "subjectParentId") or _raw_wb_value(raw, "subject_parent_id") or "") or None,
         "price": price,
         "price_currency": price_currency,
         "old_price": _int_or_none(raw.get("old_price")),
