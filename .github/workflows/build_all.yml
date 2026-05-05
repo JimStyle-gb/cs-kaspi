@@ -34,5 +34,7 @@ jobs:
         if: always()
         with:
           name: build_all_artifacts
-          path: artifacts
+          path: |
+            artifacts
+            !artifacts/exports/kaspi_images/**
           if-no-files-found: warn
