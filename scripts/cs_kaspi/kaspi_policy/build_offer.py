@@ -40,6 +40,8 @@ def run(product: dict) -> dict:
             "kaspi_category_path": category.get("kaspi_category_path"),
             "kaspi_category_status": category.get("kaspi_category_status"),
             "kaspi_category_live_ready": category.get("kaspi_category_live_ready"),
+            "kaspi_category_search_hint": category.get("kaspi_category_search_hint"),
+            "kaspi_category_fill_instruction": category.get("kaspi_category_fill_instruction"),
             "price_source": "market_policy" if price else None,
             "market_price": product.get("market", {}).get("market_price"),
             "market_price_source": product.get("market", {}).get("market_price_source"),
