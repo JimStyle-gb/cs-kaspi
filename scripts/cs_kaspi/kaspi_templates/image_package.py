@@ -153,6 +153,22 @@ def _download(
     return "failed", None, 0, last_detail
 
 
+def _is_optional_unavailable_image(status: str, detail: str, product_has_image: bool) -> bool:
+    """Определяет битую необязательную ссылку на фото.
+
+    WB иногда оставляет в списке 10-е/резервное фото, которое уже отдаёт 404.
+    Если у товара уже есть хотя бы одно нормальное фото, такая ссылка не должна портить
+    общий статус image package как failed. Мы не добавляем её в manifest/queue и считаем
+    отдельно как skipped_optional_unavailable.
+    """
+    if not product_has_image:
+        return False
+    if status not in {"failed", "failed_small_file", "failed_small_jpg", "failed_bad_image"}:
+        return False
+    text = f"{status} {detail}".lower()
+    return "404" in text or "410" in text or "not found" in text
+
+
 def _write_zip(zip_path: Path, package_dir: Path, downloaded_paths: list[Path]) -> None:
     zip_path.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
@@ -208,10 +224,12 @@ def write_image_manifest(data: dict[str, Any]) -> dict[str, Path]:
     stats = {
         "products": 0,
         "urls_total": 0,
+        "source_urls_seen": 0,
         "downloaded": 0,
         "cached": 0,
         "queued_only": 0,
         "failed": 0,
+        "skipped_optional_unavailable": 0,
         "zip_created": False,
         "download_enabled": download_enabled,
         "enabled": enabled,
@@ -235,9 +253,13 @@ def write_image_manifest(data: dict[str, Any]) -> dict[str, Path]:
             if not urls:
                 continue
             stats["products"] += 1
-            for idx, url in enumerate(urls, 1):
-                target_base = images_dir / sku / f"{idx:02d}"
-                rel_path = f"images/{sku}/{idx:02d}.jpg"
+            product_has_image = False
+            output_idx = 0
+            for source_idx, url in enumerate(urls, 1):
+                stats["source_urls_seen"] += 1
+                target_idx = output_idx + 1
+                target_base = images_dir / sku / f"{target_idx:02d}"
+                rel_path = f"images/{sku}/{target_idx:02d}.jpg"
                 status = "queued"
                 size_bytes = 0
                 detail = "download_disabled"
@@ -253,9 +275,13 @@ def write_image_manifest(data: dict[str, Any]) -> dict[str, Path]:
                         int(settings["jpeg_quality"]),
                         int(settings["max_side_px"]),
                     )
+                    if _is_optional_unavailable_image(status, detail, product_has_image):
+                        stats["skipped_optional_unavailable"] += 1
+                        continue
                     if final_path is not None:
                         rel_path = final_path.relative_to(package_dir).as_posix()
                         downloaded_paths.append(final_path)
+                        product_has_image = True
                     if status == "downloaded":
                         stats["downloaded"] += 1
                     elif status == "cached":
@@ -265,12 +291,14 @@ def write_image_manifest(data: dict[str, Any]) -> dict[str, Path]:
                 else:
                     stats["queued_only"] += 1
 
+                output_idx += 1
                 stats["urls_total"] += 1
                 rows.append({
                     "template_key": template_key,
                     "product_key": payload.get("product_key"),
                     "merchant_sku": sku,
-                    "image_index": idx,
+                    "image_index": output_idx,
+                    "source_index": source_idx,
                     "source_url": url,
                     "kaspi_image_path": rel_path,
                     "status": status,
@@ -284,7 +312,7 @@ def write_image_manifest(data: dict[str, Any]) -> dict[str, Path]:
         writer = csv.DictWriter(
             fh,
             fieldnames=[
-                "template_key", "product_key", "merchant_sku", "image_index", "source_url",
+                "template_key", "product_key", "merchant_sku", "image_index", "source_index", "source_url",
                 "kaspi_image_path", "status", "size_bytes", "detail",
             ],
         )
