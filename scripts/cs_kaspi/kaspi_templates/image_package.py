@@ -53,7 +53,7 @@ def _settings() -> dict[str, Any]:
         # JPG/JPEG из источника сохраняются как есть, без пережатия. Quality применяется только к PNG/WebP/другим форматам.
         "jpeg_quality": max(85, min(100, _int(image_cfg.get("jpeg_quality"), 95))),
         "max_images_per_product": max(1, min(10, _int(image_cfg.get("max_images_per_product"), 10))),
-        "min_images_per_product": max(1, min(10, _int(image_cfg.get("min_images_per_product"), 2))),
+        "min_images_per_product": max(1, min(10, _int(image_cfg.get("min_images_per_product"), 1))),
         "timeout_sec": max(3, _int(image_cfg.get("timeout_sec"), 12)),
         "retries": max(0, min(3, _int(image_cfg.get("retries"), 1))),
         "min_bytes": max(0, _int(image_cfg.get("min_bytes"), 512)),
@@ -218,7 +218,7 @@ def write_image_manifest(data: dict[str, Any]) -> dict[str, Path]:
     download_enabled = _env_bool("CS_KASPI_DOWNLOAD_IMAGES", bool(settings["download_images"]))
     create_zip = _env_bool("CS_KASPI_CREATE_IMAGES_ZIP", bool(settings["create_zip"]))
     keep_unzipped_images = _env_bool("CS_KASPI_KEEP_UNZIPPED_IMAGES", bool(settings["keep_unzipped_images"]))
-    min_images_per_product = int(settings.get("min_images_per_product") or 2)
+    min_images_per_product = int(settings.get("min_images_per_product") or 1)
 
     package_dir = out_dir / "kaspi_images"
     images_dir = package_dir / "images"
