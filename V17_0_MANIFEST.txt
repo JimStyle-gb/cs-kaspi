@@ -1,0 +1,25 @@
+CS-Kaspi v17 brand_all clean baseline
+
+Production WB source:
+- https://www.wildberries.ru/brands/demiand/all
+
+Removed from production logic:
+- old category seed links
+- WB wide search by query "demiand"
+- review/search discovery as a normal build step
+
+Business rules preserved:
+- WB brand_all is the sellable market source.
+- Official Demiand site enriches specs/SEO/photos/descriptions, but is not a hard sellable filter.
+- WB-only products with DEMIAND brand are kept and enriched from WB/model specs/duplicates when official match is missing.
+- Exact duplicates of the same sellable variant are collapsed; lowest WB price wins.
+- Different color/volume/model/Wi-Fi/bundle/accessory/count/material/type/WB variant remain separate Kaspi candidates.
+- Price rule: lowest WB price + 30%, then floor to last two digits 00.
+- No extra delivery buffer over WB ETA.
+- Kaspi category codes are verified against data/kaspi/reference/kaspi_categories.json.
+- Kaspi templates included: air fryers, blenders, accessories for small kitchen appliances, tabletop electric ovens, coffee machines.
+- Photo package keeps source JPG/JPEG without needless recompression; WebP/PNG convert to JPG quality 95; no resizing.
+
+Notes:
+- Live Kaspi API sending remains disabled by design.
+- Generated artifacts/images should stay in GitHub Actions artifacts, not committed to repository.

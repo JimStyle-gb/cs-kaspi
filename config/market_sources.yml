@@ -1,0 +1,76 @@
+discovery:
+  enabled: true
+  mode: wb_brand_all_only
+  # Production-сбор Demiand: только официальная брендовая страница WB.
+  # Старые category-seeds и широкий поиск "demiand" не используются, чтобы не тянуть мусор.
+  save_debug_artifacts: false
+  no_fallback_search: true
+  fetch_product_pages: false
+  fail_build_on_seed_error: false
+  max_cards_per_seed: 1200
+  expected_drop_warning_ratio: 0.45
+
+wb_api:
+  enabled: true
+  source_of_truth: json_products
+  currency: kzt
+  dest: 233
+  locale: kz
+  lang: ru
+  brand_id: 53038
+  force_kzt_params: true
+  request_timeout_sec: 45
+  max_retries: 2
+  polite_sleep_sec: 2
+  multi_source_union: true
+  browser_fetch_attempts_per_url: 2
+  probe_paginated_urls: true
+  max_api_pages_per_seed: 8
+  direct_requests_fallback: if_browser_empty
+
+browser:
+  engine: chromium
+  headless: true
+  viewport_width: 1440
+  viewport_height: 1400
+  goto_timeout_ms: 60000
+  wait_after_open_ms: 3000
+  scroll_step_px: 1200
+  scroll_wait_ms: 1200
+  max_scroll_rounds: 55
+  stop_after_rounds_without_new: 5
+
+matching:
+  # WB brand_all is the sellable source. Official site is enrichment only, not a hard filter.
+  required_model_match: false
+  required_brand_match: true
+  exact_color_match_required: false
+  exact_bundle_match_required: false
+  allow_market_bundle_as_kaspi_variant: true
+  minimum_confidence_for_auto_market_record: 65
+  allow_market_only_when_official_missing: true
+  confidence_for_review: 45
+  rejected_below_confidence: 45
+
+pricing:
+  choose_lowest_price_inside_same_variant: true
+  markup_percent: 30
+  rounding_mode: floor_to_100
+
+lead_time:
+  copy_market_eta_without_extra_buffer: true
+  safety_buffer_days: 0
+  fallback_days_when_missing: 3
+
+seeds:
+  - seed_key: wb_demiand_brand_all
+    source: wb
+    supplier_key: demiand
+    brand: DEMIAND
+    brand_id: 53038
+    enabled: true
+    discovery_role: brand_all_primary
+    review_only: false
+    url: https://www.wildberries.ru/brands/demiand/all
+    api_url: https://www.wildberries.ru/__internal/search/exactmatch/sng/common/v18/search?ab_testing=false&appType=1&curr=kzt&dest=233&fbrand=53038&hide_dflags=131072&hide_dtype=11%3B13&hide_vflags=4294967296&lang=ru&locale=kz&query=demiand&resultset=catalog&sort=popular&spp=30&suppressSpellcheck=false&uclusters=0
+    max_api_pages: 8

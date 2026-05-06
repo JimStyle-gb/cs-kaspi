@@ -1,0 +1,8 @@
+CS-Kaspi v7.0 WB-only clean
+
+Изменения:
+- Market-source оставлен только WB.
+- Market-source теперь только WB.
+- Цена: WB source price + 30%, затем floor до 100 KZT, чтобы последние две цифры были 00.
+- Удалён неиспользуемый artifacts/kaspi_match_templates.
+- Обновлены README, PROJECT_CARD, BUSINESS_RULES.
