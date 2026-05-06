@@ -168,6 +168,10 @@ def _build_plan(master_catalog: dict[str, Any]) -> dict[str, Any]:
     pause_candidates: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
 
+    commercial_ready_products = 0
+    template_ready_products = 0
+    template_blocked_products = 0
+
     for product in products:
         kaspi = _safe_dict(product.get("kaspi_policy"))
         status = _safe_dict(product.get("status"))
@@ -176,27 +180,45 @@ def _build_plan(master_catalog: dict[str, Any]) -> dict[str, Any]:
         ready = status.get("action_status") == "ready_for_create_or_update"
         available = kaspi.get("kaspi_available") is True
         matched = match.get("exists") is True
+        commercial_ready = ready and available
 
-        if ready and available and matched:
+        if commercial_ready:
+            commercial_ready_products += 1
+
+        # Важно: в create/update/export допускаем только товары, прошедшие конкретный Kaspi XLSX-template.
+        # Commercial-ready без обязательных полей шаблона остаётся в skipped/template_blocked и не попадает
+        # в kaspi_create_candidates.json / kaspi_create_api_payload.json.
+        template_probe = _export_item(product, action="skipped")
+        template_ready = template_probe.get("kaspi_template_status") == "template_ready"
+        if commercial_ready and template_ready:
+            template_ready_products += 1
+        elif commercial_ready:
+            template_blocked_products += 1
+
+        if commercial_ready and template_ready and matched:
             update_candidates.append(_export_item(product, action="update_candidate"))
-        elif ready and available:
+        elif commercial_ready and template_ready:
             create_candidates.append(_export_item(product, action="create_candidate"))
         elif matched and not available:
             pause_candidates.append(_export_item(product, action="pause_candidate"))
         else:
-            skipped.append(_export_item(product, action="skipped"))
+            skipped.append(template_probe)
 
     ready_products = create_candidates + update_candidates
     meta = {
         "built_at": now_iso(),
         "export_mode": "draft_only",
         "total_products": len(products),
+        "commercial_ready_products": commercial_ready_products,
         "ready_products": len(ready_products),
+        "kaspi_export_ready_products": len(ready_products),
+        "kaspi_template_ready_products": template_ready_products,
+        "kaspi_template_blocked_products": template_blocked_products,
         "create_candidates": len(create_candidates),
         "update_candidates": len(update_candidates),
         "pause_candidates": len(pause_candidates),
         "skipped": len(skipped),
-        "note": "Draft files only. Nothing is sent to Kaspi API.",
+        "note": "Draft files only. Create/update exports include only Kaspi template-ready products. Nothing is sent to Kaspi API.",
     }
 
     return {
@@ -525,7 +547,10 @@ def run() -> dict[str, Any]:
     files.update(template_files)
 
     meta = dict(plan.get("meta", {}))
-    meta["commercial_ready_products"] = meta.get("ready_products")
+    # commercial_ready_products — все товары с ценой/наличием.
+    # ready_products / create_candidates / update_candidates — только товары, прошедшие Kaspi template validation.
+    meta["commercial_ready_products"] = int(meta.get("commercial_ready_products") or 0)
+    meta["kaspi_export_ready_products"] = int(meta.get("ready_products") or 0)
     meta["kaspi_template_ready_products"] = template_meta.get("template_ready", 0)
     meta["kaspi_template_blocked_products"] = template_meta.get("template_blocked", 0)
     meta["kaspi_template_by_template"] = template_meta.get("by_template", {})
