@@ -33,6 +33,11 @@ def _offer_audit(candidate: dict[str, Any]) -> dict[str, Any]:
         "seed_key": candidate.get("seed_key"),
         "matched_by": candidate.get("matched_by"),
         "official_match_status": candidate.get("official_match_status"),
+        "seed_role": candidate.get("seed_role"),
+        "review_only": candidate.get("review_only"),
+        "wb_brand": candidate.get("wb_brand"),
+        "wb_brand_id": candidate.get("wb_brand_id"),
+        "wb_brand_status": candidate.get("wb_brand_status"),
     }
 
 
@@ -66,6 +71,11 @@ def _to_market_record(candidate: dict[str, Any], *, status: str, duplicates: lis
         "match_confidence": candidate.get("match_confidence"),
         "matched_by": candidate.get("matched_by"),
         "official_match_status": candidate.get("official_match_status"),
+        "seed_role": candidate.get("seed_role"),
+        "review_only": candidate.get("review_only"),
+        "wb_brand": candidate.get("wb_brand"),
+        "wb_brand_id": candidate.get("wb_brand_id"),
+        "wb_brand_status": candidate.get("wb_brand_status"),
         "discovery_status": status,
         "duplicates_collapsed": max(0, len(duplicates) - 1),
         "collapsed_offers": duplicates,
