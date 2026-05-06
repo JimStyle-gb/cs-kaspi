@@ -100,7 +100,12 @@ def _force_wb_api_params(url: str, seed: dict[str, Any]) -> str:
     params["dest"] = str(seed.get("dest") or api_cfg.get("dest") or WB_DEST_ALMATY)
     params["locale"] = str(seed.get("locale") or api_cfg.get("locale") or "kz").lower()
     params["lang"] = str(seed.get("lang") or api_cfg.get("lang") or "ru").lower()
-    params["fbrand"] = str(seed.get("brand_id") or api_cfg.get("brand_id") or WB_BRAND_ID_DEMIAND)
+    if seed.get("force_brand_filter") is False:
+        # Wide search is intentionally unfiltered by brand to measure real WB coverage.
+        # These rows are normally review-only and must not go directly into ready.
+        params.pop("fbrand", None)
+    else:
+        params["fbrand"] = str(seed.get("brand_id") or api_cfg.get("brand_id") or WB_BRAND_ID_DEMIAND)
     params.setdefault("appType", "1")
     params.setdefault("resultset", "catalog")
     params.setdefault("sort", "popular")
@@ -125,7 +130,7 @@ def _set_url_param(url: str, key: str, value: Any) -> str:
 def _api_url_variants(base_url: str, seed: dict[str, Any]) -> list[str]:
     api_cfg = (market_cfg().get("wb_api", {}) or {})
     forced = _force_wb_api_params(base_url, seed)
-    max_pages = max(1, int(api_cfg.get("max_api_pages_per_seed") or 1))
+    max_pages = max(1, int(seed.get("max_api_pages") or api_cfg.get("max_api_pages_per_seed") or 1))
     urls: list[str] = []
 
     def add(url: str) -> None:
@@ -321,17 +326,37 @@ def _image_url(nm_id: int, pics: Any) -> str:
     return f"https://basket-{basket:02}.wbbasket.ru/vol{vol}/part{part}/{nm_id}/images/big/1.webp"
 
 
-def _is_expected_brand(product: dict[str, Any], expected_brand: str) -> bool:
+def _brand_evidence(product: dict[str, Any], expected_brand: str) -> dict[str, Any]:
     brand = _normalize_spaces(product.get("brand"))
     brand_id = _as_int(product.get("brandId"))
     supplier = _normalize_spaces(product.get("supplier"))
+    name = _normalize_spaces(product.get("name"))
     expected = _normalize_spaces(expected_brand or "DEMIAND").lower()
-    return (
-        brand.lower() == expected
-        or supplier.lower() == expected
-        or brand_id == WB_BRAND_ID_DEMIAND
-        or "demiand" in f"{brand} {supplier} {_normalize_spaces(product.get('name'))}".lower()
-    )
+    evidence: list[str] = []
+    if brand.lower() == expected:
+        evidence.append("brand_text_exact")
+    if supplier.lower() == expected:
+        evidence.append("supplier_text_exact")
+    if brand_id == WB_BRAND_ID_DEMIAND:
+        evidence.append("brand_id_53038")
+    if "demiand" in name.lower() or "демианд" in name.lower():
+        evidence.append("title_contains_demiand")
+    if not brand:
+        evidence.append("brand_missing")
+    elif brand.lower() != expected and brand_id != WB_BRAND_ID_DEMIAND:
+        evidence.append("brand_text_differs")
+    return {
+        "brand": brand,
+        "brand_id": brand_id,
+        "supplier": supplier,
+        "name": name,
+        "evidence": evidence,
+        "is_expected": any(x in evidence for x in ("brand_text_exact", "supplier_text_exact", "brand_id_53038", "title_contains_demiand")),
+    }
+
+
+def _is_expected_brand(product: dict[str, Any], expected_brand: str) -> bool:
+    return bool(_brand_evidence(product, expected_brand).get("is_expected"))
 
 
 def _card_from_product(product: dict[str, Any], seed: dict[str, Any], api_url: str) -> dict[str, Any] | None:
@@ -341,8 +366,11 @@ def _card_from_product(product: dict[str, Any], seed: dict[str, Any], api_url: s
     name = _normalize_spaces(product.get("name"))
     if not product_id or not name:
         return None
-    brand = _normalize_spaces(product.get("brand") or seed.get("brand") or "DEMIAND") or "DEMIAND"
-    title = name if brand.lower() in name.lower() else f"{brand} {name}"
+    evidence = _brand_evidence(product, str(seed.get("brand") or "DEMIAND"))
+    raw_brand = _normalize_spaces(product.get("brand"))
+    brand_id = _as_int(product.get("brandId"))
+    brand = raw_brand or (str(seed.get("brand") or "DEMIAND") if brand_id == WB_BRAND_ID_DEMIAND else "")
+    title = name if not brand or brand.lower() in name.lower() else f"{brand} {name}"
     price, old_price = _price_from_product(product)
     stock = _stock_from_product(product)
     lead_days = _lead_days_from_time2(product)
@@ -365,6 +393,8 @@ def _card_from_product(product: dict[str, Any], seed: dict[str, Any], api_url: s
         "source": seed.get("source") or "wb",
         "seed_key": seed.get("seed_key"),
         "seed_url": seed.get("url"),
+        "seed_role": seed.get("discovery_role") or seed.get("role") or "category_seed",
+        "review_only": bool(seed.get("review_only")),
         "api_url": api_url,
         "href": url,
         "url": url,
@@ -374,6 +404,8 @@ def _card_from_product(product: dict[str, Any], seed: dict[str, Any], api_url: s
         "title": title,
         "brand": brand,
         "brand_id": product.get("brandId"),
+        "brand_status": "|".join(evidence.get("evidence") or []),
+        "brand_is_expected": evidence.get("is_expected"),
         "supplier": product.get("supplier"),
         "supplier_id": product.get("supplierId"),
         "entity": entity,
@@ -740,6 +772,9 @@ def fetch_seed(seed: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, An
         "api_url_configured": bool(api_url),
         "fetch_mode": "wb_json_api_products_browser_then_direct",
         "status": "pending",
+        "discovery_role": seed.get("discovery_role") or seed.get("role") or "category_seed",
+        "review_only": bool(seed.get("review_only")),
+        "force_brand_filter": seed.get("force_brand_filter") is not False,
         "errors": [],
         "warnings": [],
         "cards_unique_url": 0,
