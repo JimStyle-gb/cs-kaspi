@@ -51,6 +51,7 @@ matching:
   exact_bundle_match_required: false
   allow_market_bundle_as_kaspi_variant: true
   minimum_confidence_for_auto_market_record: 65
+  allow_market_only_when_official_missing: true
   confidence_for_review: 45
   rejected_below_confidence: 45
 
@@ -96,3 +97,27 @@ seeds:
     enabled: true
     url: https://www.wildberries.ru/catalog/elektronika/tehnika-dlya-kuhni/aksessuary-dlya-kuhonnoy-tehniki?sort=popular&page=1&fbrand=53038
     api_url: https://www.wildberries.ru/__internal/search/exactmatch/sng/common/v18/search?ab_testing=false&appType=1&curr=kzt&dest=233&fbrand=53038&hide_dflags=131072&hide_dtype=11%3B13&hide_vflags=4294967296&lang=ru&locale=kz&query=menu_redirect_subject_v2_9796+%D0%B0%D0%BA%D1%81%D0%B5%D1%81%D1%81%D1%83%D0%B0%D1%80%D1%8B+%D0%B4%D0%BB%D1%8F+%D0%BA%D1%83%D1%85%D0%BE%D0%BD%D0%BD%D0%BE%D0%B9+%D1%82%D0%B5%D1%85%D0%BD%D0%B8%D0%BA%D0%B8&resultset=catalog&sort=popular&spp=30&suppressSpellcheck=false&uclusters=0
+
+  - seed_key: wb_demiand_brand_all
+    source: wb
+    supplier_key: demiand
+    brand: DEMIAND
+    brand_id: 53038
+    enabled: true
+    discovery_role: brand_all_primary
+    review_only: false
+    url: https://www.wildberries.ru/brands/demiand/all
+    api_url: https://www.wildberries.ru/__internal/search/exactmatch/sng/common/v18/search?ab_testing=false&appType=1&curr=kzt&dest=233&fbrand=53038&hide_dflags=131072&hide_dtype=11%3B13&hide_vflags=4294967296&lang=ru&locale=kz&query=demiand&resultset=catalog&sort=popular&spp=30&suppressSpellcheck=false&uclusters=0
+    max_api_pages: 8
+
+  - seed_key: wb_demiand_search_wide
+    source: wb
+    supplier_key: demiand
+    brand: DEMIAND
+    enabled: true
+    discovery_role: wide_search_review
+    review_only: true
+    force_brand_filter: false
+    url: https://www.wildberries.ru/catalog/0/search.aspx?search=demiand
+    api_url: https://www.wildberries.ru/__internal/search/exactmatch/sng/common/v18/search?ab_testing=false&appType=1&curr=kzt&dest=233&hide_dflags=131072&hide_dtype=11%3B13&hide_vflags=4294967296&lang=ru&locale=kz&query=demiand&resultset=catalog&sort=popular&spp=30&suppressSpellcheck=false&uclusters=0
+    max_api_pages: 12
