@@ -9,9 +9,16 @@ from scripts.cs_kaspi.core.paths import path_from_config
 from scripts.cs_kaspi.core.time_utils import now_iso
 
 REVIEW_HEADERS = [
-    "source", "seed_key", "market_title", "market_url", "market_price", "market_available",
-    "market_stock", "eta_text", "lead_time_days", "brand", "model_key", "category_key",
-    "base_product_key", "market_color", "market_bundle", "variant_signature", "match_confidence", "reason",
+    "source", "seed_key", "seed_role", "review_only", "market_title", "market_url", "market_price", "market_available",
+    "market_stock", "eta_text", "lead_time_days", "brand", "wb_brand", "wb_brand_id", "wb_brand_status",
+    "model_key", "category_key", "base_product_key", "market_color", "market_bundle",
+    "variant_signature", "match_confidence", "matched_by", "official_match_status", "reason",
+]
+
+COVERAGE_HEADERS = [
+    "seed_key", "seed_role", "review_only", "status", "api_total", "api_products_union",
+    "cards_unique_url", "unique_wb_ids", "new_vs_category_seeds", "overlap_with_category_seeds",
+    "warnings", "errors",
 ]
 
 WB_MISSING_HEADERS = [
@@ -77,7 +84,8 @@ def _is_wb_sellable_card(card: dict[str, Any]) -> bool:
         return False
     brand_id = _as_int(card.get("brand_id") or card.get("brandId"))
     brand_text = _text(card.get("brand") or card.get("supplier")).lower()
-    if brand_id != 53038 and "demiand" not in brand_text:
+    title_text = _text(card.get("title") or card.get("link_text") or card.get("market_title")).lower()
+    if brand_id != 53038 and "demiand" not in brand_text and "demiand" not in title_text:
         return False
     if not _wb_id(card):
         return False
@@ -129,7 +137,7 @@ def _build_current_wb_seen(
                 "wb_id": wb_id,
                 "title": _text(card.get("title") or card.get("market_title") or card.get("link_text")),
                 "url": _wb_url(wb_id, card.get("url") or card.get("href")),
-                "brand": _text(card.get("brand") or card.get("supplier") or "DEMIAND"),
+                "brand": _text(card.get("brand") or card.get("supplier")),
                 "brand_id": _as_int(card.get("brand_id") or card.get("brandId")),
                 "entity": _text(card.get("wb_entity") or card.get("entity")),
                 "color": _text(card.get("market_color_raw") or card.get("color_text") or card.get("market_color")),
@@ -330,13 +338,110 @@ def _write_review_csv(path: Path, rows: list[dict[str, Any]]) -> None:
         for row in rows:
             item = {key: row.get(key, "") for key in REVIEW_HEADERS}
             if not item.get("reason"):
-                if not row.get("market_price"):
+                if row.get("force_review_reason"):
+                    item["reason"] = row.get("force_review_reason")
+                elif row.get("review_only"):
+                    item["reason"] = "wide_search_review_only"
+                elif not row.get("market_price"):
                     item["reason"] = "missing_price_or_not_visible_in_listing"
                 elif int(row.get("match_confidence") or 0) < 70:
                     item["reason"] = "low_model_confidence"
                 else:
                     item["reason"] = "needs_manual_review"
             writer.writerow(item)
+
+
+def _seed_ids(raw_cards: list[dict[str, Any]]) -> dict[str, set[str]]:
+    by_seed: dict[str, set[str]] = {}
+    for card in raw_cards:
+        seed_key = _text(card.get("seed_key")) or "unknown"
+        wb_id = _wb_id(card)
+        if not wb_id:
+            continue
+        by_seed.setdefault(seed_key, set()).add(wb_id)
+    return by_seed
+
+
+def _build_coverage_audit(raw_cards: list[dict[str, Any]], reports: list[dict[str, Any]]) -> dict[str, Any]:
+    ids_by_seed = _seed_ids(raw_cards)
+    category_seed_keys = {
+        "wb_demiand_cooking",
+        "wb_demiand_drinks",
+        "wb_demiand_blending",
+        "wb_demiand_accessories",
+    }
+    category_ids: set[str] = set()
+    for key in category_seed_keys:
+        category_ids.update(ids_by_seed.get(key, set()))
+    brand_all_ids = ids_by_seed.get("wb_demiand_brand_all", set())
+    search_ids = ids_by_seed.get("wb_demiand_search_wide", set())
+    rows: list[dict[str, Any]] = []
+    for report in reports:
+        seed_key = _text(report.get("seed_key"))
+        ids = ids_by_seed.get(seed_key, set())
+        rows.append({
+            "seed_key": seed_key,
+            "seed_role": report.get("discovery_role") or "category_seed",
+            "review_only": report.get("review_only"),
+            "status": report.get("status"),
+            "api_total": report.get("api_total"),
+            "api_products_union": report.get("api_products_union"),
+            "cards_unique_url": report.get("cards_unique_url"),
+            "unique_wb_ids": len(ids),
+            "new_vs_category_seeds": len(ids - category_ids) if seed_key not in category_seed_keys else 0,
+            "overlap_with_category_seeds": len(ids & category_ids) if seed_key not in category_seed_keys else len(ids),
+            "warnings": report.get("warnings") or [],
+            "errors": report.get("errors") or [],
+        })
+    return {
+        "category_seed_ids": len(category_ids),
+        "brand_all_ids": len(brand_all_ids),
+        "brand_all_new_vs_category": len(brand_all_ids - category_ids),
+        "category_only_not_in_brand_all": len(category_ids - brand_all_ids) if brand_all_ids else len(category_ids),
+        "wide_search_ids": len(search_ids),
+        "wide_search_new_vs_category": len(search_ids - category_ids),
+        "wide_search_new_vs_brand_all": len(search_ids - brand_all_ids) if brand_all_ids else len(search_ids),
+        "union_all_ids": len(set().union(*ids_by_seed.values())) if ids_by_seed else 0,
+        "rows": rows,
+        "ids_by_seed": {key: sorted(value, key=lambda x: int(x) if x.isdigit() else 0) for key, value in ids_by_seed.items()},
+    }
+
+
+def _write_coverage_csv(path: Path, rows: list[dict[str, Any]]) -> None:
+    _write_dict_rows_csv(path, rows, COVERAGE_HEADERS)
+
+
+def _write_coverage_txt(path: Path, audit: dict[str, Any]) -> None:
+    lines = [
+        "CS-Kaspi WB source coverage audit",
+        "Цель: сравнить старые category-seeds, /brands/demiand/all и широкий поиск demiand без немедленного усложнения ready-логики.",
+        "Правило: wide_search является review-only; он показывает потенциальный охват, но не отправляет товары сразу в Kaspi-ready.",
+        "",
+        f"category_seed_ids: {audit.get('category_seed_ids')}",
+        f"brand_all_ids: {audit.get('brand_all_ids')}",
+        f"brand_all_new_vs_category: {audit.get('brand_all_new_vs_category')}",
+        f"category_only_not_in_brand_all: {audit.get('category_only_not_in_brand_all')}",
+        f"wide_search_ids: {audit.get('wide_search_ids')}",
+        f"wide_search_new_vs_category: {audit.get('wide_search_new_vs_category')}",
+        f"wide_search_new_vs_brand_all: {audit.get('wide_search_new_vs_brand_all')}",
+        f"union_all_ids: {audit.get('union_all_ids')}",
+        "",
+        "Seeds:",
+    ]
+    for row in audit.get("rows") or []:
+        lines.append(
+            f"- {row.get('seed_key')}: role={row.get('seed_role')}, review_only={row.get('review_only')}, "
+            f"status={row.get('status')}, ids={row.get('unique_wb_ids')}, api_total={row.get('api_total')}, "
+            f"new_vs_category={row.get('new_vs_category_seeds')}"
+        )
+        warnings = row.get("warnings") or []
+        errors = row.get("errors") or []
+        if warnings:
+            lines.append(f"  warnings: {' | '.join(map(str, warnings))}")
+        if errors:
+            lines.append(f"  errors: {' | '.join(map(str, errors))}")
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
 
 def _write_seed_report(path: Path, reports: list[dict[str, Any]]) -> None:
@@ -346,6 +451,8 @@ def _write_seed_report(path: Path, reports: list[dict[str, Any]]) -> None:
         warnings = report.get("warnings") or []
         lines.append(f"seed: {report.get('seed_key')}")
         lines.append(f"  source: {report.get('source')}")
+        lines.append(f"  role: {report.get('discovery_role') or 'category_seed'}")
+        lines.append(f"  review_only: {report.get('review_only')}")
         lines.append(f"  status: {report.get('status')}")
         lines.append(f"  cards_unique_url: {report.get('cards_unique_url')}")
         lines.append(f"  scroll_rounds: {report.get('scroll_rounds')}")
@@ -381,8 +488,8 @@ def _write_report(path: Path, result: dict[str, Any]) -> None:
         f"wb_missing_products: {summary.get('wb_missing_products', 0)}",
         "",
         "Rules:",
-        "- WB are parsed only from user-provided seed listing URLs.",
-        "- No fallback search by brand/model is used.",
+        "- WB are parsed from explicit seed URLs only: category links, brand_all and optional review-only wide search.",
+        "- Wide search is used for coverage audit/review only; it does not go directly into Kaspi-ready.",
         "- Product pages are not opened in the main flow.",
         "- Official source is the model/spec/SEO reference.",
         "- WB listing is the source for title/url/price/stock/ETA/bundle.",
@@ -408,6 +515,7 @@ def run(
     out_dir.mkdir(parents=True, exist_ok=True)
     built_at = now_iso()
     wb_seen_audit = _build_wb_seen_audit(raw_cards, built_at)
+    coverage_audit = _build_coverage_audit(raw_cards, source_reports)
     seed_errors = [r for r in source_reports if r.get("status") in {"failed", "empty"} or r.get("errors")]
     seed_warnings = [r for r in source_reports if r.get("warnings")]
     summary = {
@@ -421,6 +529,12 @@ def run(
         "wb_seen_products_previous": wb_seen_audit.get("previous_count", 0),
         "wb_seen_products_current": wb_seen_audit.get("current_count", 0),
         "wb_missing_products": wb_seen_audit.get("missing_count", 0),
+        "coverage_category_seed_ids": coverage_audit.get("category_seed_ids", 0),
+        "coverage_brand_all_ids": coverage_audit.get("brand_all_ids", 0),
+        "coverage_brand_all_new_vs_category": coverage_audit.get("brand_all_new_vs_category", 0),
+        "coverage_wide_search_ids": coverage_audit.get("wide_search_ids", 0),
+        "coverage_wide_search_new_vs_category": coverage_audit.get("wide_search_new_vs_category", 0),
+        "coverage_union_all_ids": coverage_audit.get("union_all_ids", 0),
     }
     result = {
         "built_at": built_at,
@@ -431,6 +545,7 @@ def run(
         "rejected": best_result.get("rejected", []),
         "seed_reports": source_reports,
         "wb_missing_products": wb_seen_audit.get("missing_rows", []),
+        "coverage_audit": coverage_audit,
     }
     write_json(out_dir / "official_model_profiles.json", {"built_at": built_at, "profiles": profiles})
     write_json(out_dir / "market_seed_urls.json", {"built_at": built_at, "seeds": seeds})
@@ -466,6 +581,9 @@ def run(
     write_json(out_dir / "market_discovery_records.json", result)
     write_json(out_dir / "seed_url_report.json", {"built_at": built_at, "reports": source_reports})
     _write_seed_report(out_dir / "seed_url_report.txt", source_reports)
+    write_json(out_dir / "wb_source_coverage_audit.json", {"built_at": built_at, **coverage_audit})
+    _write_coverage_txt(out_dir / "wb_source_coverage_audit.txt", coverage_audit)
+    _write_coverage_csv(out_dir / "wb_source_coverage_audit.csv", coverage_audit.get("rows", []))
     _write_review_csv(out_dir / "market_review_needed.csv", best_result.get("review_needed", []))
     _write_report(out_dir / "market_discovery_report.txt", result)
     return result
