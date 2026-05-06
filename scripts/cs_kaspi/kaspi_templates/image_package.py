@@ -53,6 +53,7 @@ def _settings() -> dict[str, Any]:
         # JPG/JPEG из источника сохраняются как есть, без пережатия. Quality применяется только к PNG/WebP/другим форматам.
         "jpeg_quality": max(85, min(100, _int(image_cfg.get("jpeg_quality"), 95))),
         "max_images_per_product": max(1, min(10, _int(image_cfg.get("max_images_per_product"), 10))),
+        "min_images_per_product": max(1, min(10, _int(image_cfg.get("min_images_per_product"), 2))),
         "timeout_sec": max(3, _int(image_cfg.get("timeout_sec"), 12)),
         "retries": max(0, min(3, _int(image_cfg.get("retries"), 1))),
         "min_bytes": max(0, _int(image_cfg.get("min_bytes"), 512)),
@@ -193,6 +194,13 @@ def write_image_manifest(data: dict[str, Any]) -> dict[str, Path]:
     - artifacts/exports/kaspi_images.zip с путями images/<merchant_sku>/01.jpg
     - manifest/queue/summary для аудита.
 
+    Правило проекта по фото:
+    - цель не скачать все 10 фото любой ценой;
+    - товар считается image-ok, если скачалось минимум min_images_per_product фото;
+    - дополнительные битые/timeout/404 ссылки после достижения минимума считаются optional skipped,
+      не портят общий статус и не попадают в manifest/queue;
+    - если скачалось меньше минимума, товар получает image warning через summary/manifest.
+
     Качество не режем: JPG/JPEG источника копируется как есть, WebP/PNG конвертируются
     в JPG с высоким качеством без уменьшения размера, если max_side_px=0.
 
@@ -210,6 +218,7 @@ def write_image_manifest(data: dict[str, Any]) -> dict[str, Path]:
     download_enabled = _env_bool("CS_KASPI_DOWNLOAD_IMAGES", bool(settings["download_images"]))
     create_zip = _env_bool("CS_KASPI_CREATE_IMAGES_ZIP", bool(settings["create_zip"]))
     keep_unzipped_images = _env_bool("CS_KASPI_KEEP_UNZIPPED_IMAGES", bool(settings["keep_unzipped_images"]))
+    min_images_per_product = int(settings.get("min_images_per_product") or 2)
 
     package_dir = out_dir / "kaspi_images"
     images_dir = package_dir / "images"
@@ -221,20 +230,27 @@ def write_image_manifest(data: dict[str, Any]) -> dict[str, Path]:
     rows: list[dict[str, Any]] = []
     queue_lines: list[str] = []
     downloaded_paths: list[Path] = []
+    product_summaries: list[dict[str, Any]] = []
     stats = {
         "products": 0,
+        "products_image_ok": 0,
+        "products_below_min_images": 0,
+        "products_without_urls": 0,
         "urls_total": 0,
         "source_urls_seen": 0,
         "downloaded": 0,
         "cached": 0,
         "queued_only": 0,
+        # failed = только реальные проблемы, когда у товара меньше минимального числа рабочих фото.
         "failed": 0,
+        # skipped_optional_unavailable = дополнительные ссылки не скачались, но минимум фото у товара уже есть.
         "skipped_optional_unavailable": 0,
         "zip_created": False,
         "download_enabled": download_enabled,
         "enabled": enabled,
         "output_format": "jpg",
         "keep_unzipped_images": keep_unzipped_images,
+        "min_images_per_product": min_images_per_product,
         "unzipped_images_kept": False,
     }
 
@@ -249,21 +265,45 @@ def write_image_manifest(data: dict[str, Any]) -> dict[str, Path]:
         for payload in payloads:
             row = payload.get("row") or {}
             sku = _safe_sku(_text(row.get("merchant_sku") or row.get("image_code") or payload.get("product_key")))
+            product_key = payload.get("product_key")
             urls = _split_urls(row.get("image_urls"), int(settings["max_images_per_product"]))
             if not urls:
+                stats["products_without_urls"] += 1
+                product_summaries.append({
+                    "template_key": template_key,
+                    "product_key": product_key,
+                    "merchant_sku": sku,
+                    "status": "below_min_images",
+                    "downloaded_images": 0,
+                    "source_urls": 0,
+                    "required_min_images": min_images_per_product,
+                    "optional_skipped": 0,
+                    "failed_required": 0,
+                })
                 continue
+
             stats["products"] += 1
-            product_has_image = False
+            product_rows: list[dict[str, Any]] = []
+            product_queue_lines: list[str] = []
+            product_downloaded_paths: list[Path] = []
+            pending_failures: list[dict[str, Any]] = []
+            success_count = 0
             output_idx = 0
+
             for source_idx, url in enumerate(urls, 1):
                 stats["source_urls_seen"] += 1
-                target_idx = output_idx + 1
-                target_base = images_dir / sku / f"{target_idx:02d}"
-                rel_path = f"images/{sku}/{target_idx:02d}.jpg"
                 status = "queued"
                 size_bytes = 0
                 detail = "download_disabled"
                 final_path: Path | None = None
+
+                # Сохраняем только успешные фото в последовательную нумерацию 01.jpg, 02.jpg...
+                # Неуспешные ссылки решаем после обработки всего товара: если минимум фото есть,
+                # они становятся optional_skipped и не попадают в manifest/queue.
+                target_idx = output_idx + 1
+                target_base = images_dir / sku / f"{target_idx:02d}"
+                rel_path = f"images/{sku}/{target_idx:02d}.jpg"
+
                 if enabled and download_enabled:
                     status, final_path, size_bytes, detail = _download(
                         session,
@@ -275,37 +315,102 @@ def write_image_manifest(data: dict[str, Any]) -> dict[str, Path]:
                         int(settings["jpeg_quality"]),
                         int(settings["max_side_px"]),
                     )
-                    if _is_optional_unavailable_image(status, detail, product_has_image):
-                        stats["skipped_optional_unavailable"] += 1
-                        continue
                     if final_path is not None:
+                        output_idx += 1
+                        success_count += 1
                         rel_path = final_path.relative_to(package_dir).as_posix()
-                        downloaded_paths.append(final_path)
-                        product_has_image = True
-                    if status == "downloaded":
-                        stats["downloaded"] += 1
-                    elif status == "cached":
-                        stats["cached"] += 1
+                        product_downloaded_paths.append(final_path)
+                        product_rows.append({
+                            "template_key": template_key,
+                            "product_key": product_key,
+                            "merchant_sku": sku,
+                            "image_index": output_idx,
+                            "source_index": source_idx,
+                            "source_url": url,
+                            "kaspi_image_path": rel_path,
+                            "status": status,
+                            "size_bytes": size_bytes,
+                            "detail": detail,
+                        })
+                        product_queue_lines.append(f"{rel_path}\t{url}")
+                        if status == "downloaded":
+                            stats["downloaded"] += 1
+                        elif status == "cached":
+                            stats["cached"] += 1
                     else:
-                        stats["failed"] += 1
+                        pending_failures.append({
+                            "template_key": template_key,
+                            "product_key": product_key,
+                            "merchant_sku": sku,
+                            "source_index": source_idx,
+                            "source_url": url,
+                            "status": status,
+                            "size_bytes": size_bytes,
+                            "detail": detail,
+                        })
                 else:
+                    output_idx += 1
+                    success_count += 1
                     stats["queued_only"] += 1
+                    product_rows.append({
+                        "template_key": template_key,
+                        "product_key": product_key,
+                        "merchant_sku": sku,
+                        "image_index": output_idx,
+                        "source_index": source_idx,
+                        "source_url": url,
+                        "kaspi_image_path": rel_path,
+                        "status": status,
+                        "size_bytes": size_bytes,
+                        "detail": detail,
+                    })
+                    product_queue_lines.append(f"{rel_path}\t{url}")
 
-                output_idx += 1
-                stats["urls_total"] += 1
-                rows.append({
+            if success_count >= min_images_per_product:
+                stats["products_image_ok"] += 1
+                stats["skipped_optional_unavailable"] += len(pending_failures)
+                rows.extend(product_rows)
+                queue_lines.extend(product_queue_lines)
+                downloaded_paths.extend(product_downloaded_paths)
+                stats["urls_total"] += len(product_rows)
+                product_summaries.append({
                     "template_key": template_key,
-                    "product_key": payload.get("product_key"),
+                    "product_key": product_key,
                     "merchant_sku": sku,
-                    "image_index": output_idx,
-                    "source_index": source_idx,
-                    "source_url": url,
-                    "kaspi_image_path": rel_path,
-                    "status": status,
-                    "size_bytes": size_bytes,
-                    "detail": detail,
+                    "status": "ok",
+                    "downloaded_images": success_count,
+                    "source_urls": len(urls),
+                    "required_min_images": min_images_per_product,
+                    "optional_skipped": len(pending_failures),
+                    "failed_required": 0,
                 })
-                queue_lines.append(f"{rel_path}\t{url}")
+            else:
+                stats["products_below_min_images"] += 1
+                stats["failed"] += len(pending_failures)
+                # Если фото меньше минимума, оставляем failed-ссылки в manifest для понятного аудита.
+                for failure in pending_failures:
+                    output_idx += 1
+                    rel_path = f"images/{sku}/{output_idx:02d}.jpg"
+                    product_rows.append({
+                        **failure,
+                        "image_index": output_idx,
+                        "kaspi_image_path": rel_path,
+                    })
+                rows.extend(product_rows)
+                queue_lines.extend(product_queue_lines)
+                downloaded_paths.extend(product_downloaded_paths)
+                stats["urls_total"] += len(product_rows)
+                product_summaries.append({
+                    "template_key": template_key,
+                    "product_key": product_key,
+                    "merchant_sku": sku,
+                    "status": "below_min_images",
+                    "downloaded_images": success_count,
+                    "source_urls": len(urls),
+                    "required_min_images": min_images_per_product,
+                    "optional_skipped": 0,
+                    "failed_required": len(pending_failures),
+                })
 
     manifest_path.parent.mkdir(parents=True, exist_ok=True)
     with manifest_path.open("w", encoding="utf-8-sig", newline="") as fh:
@@ -328,7 +433,7 @@ def write_image_manifest(data: dict[str, Any]) -> dict[str, Path]:
         stats["zip_size_bytes"] = 0
 
     stats["unzipped_images_kept"] = _cleanup_unzipped_images(package_dir, keep_unzipped_images, bool(stats["zip_created"]))
-    write_json(summary_path, {"meta": stats, "settings": settings})
+    write_json(summary_path, {"meta": stats, "settings": settings, "products": product_summaries})
     return {
         "images_manifest_csv": manifest_path,
         "images_download_queue_txt": queue_path,
