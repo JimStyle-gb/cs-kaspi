@@ -72,16 +72,24 @@ def _create_item(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _template_ready(item: dict[str, Any]) -> bool:
+    return item.get("kaspi_template_status") == "template_ready"
+
+
 def run(create_candidates: list[dict[str, Any]], export_meta: dict[str, Any] | None = None) -> dict[str, Any]:
-    items = [_create_item(item) for item in create_candidates if isinstance(item, dict)]
+    safe_candidates = [item for item in create_candidates if isinstance(item, dict)]
+    skipped_not_template_ready = [item for item in safe_candidates if not _template_ready(item)]
+    items = [_create_item(item) for item in safe_candidates if _template_ready(item)]
     return {
         "meta": {
             "built_at": now_iso(),
             "mode": "draft_only",
             "source": "kaspi_create_candidates.json",
             "items": len(items),
+            "input_items": len(safe_candidates),
+            "skipped_not_template_ready": len(skipped_not_template_ready),
             "export_built_at": safe_dict(export_meta).get("built_at"),
-            "note": "These records are API-create drafts only. Nothing is sent to Kaspi.",
+            "note": "These records are API-create drafts only. Only Kaspi template-ready products are included. Nothing is sent to Kaspi.",
         },
         "items": items,
     }
