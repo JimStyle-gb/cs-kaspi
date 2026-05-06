@@ -106,6 +106,10 @@ def run(update_candidates: list[dict[str, Any]], pause_candidates: list[dict[str
     for item in update_candidates:
         if not isinstance(item, dict):
             continue
+        if item.get("kaspi_template_status") != "template_ready":
+            # Защита от старых/ручных файлов: update XML не должен обновлять товары,
+            # которые не прошли обязательные поля Kaspi-шаблона.
+            continue
         offer, plan_item = _xml_offer(item, action="update_candidate", store_id=store_id)
         offer_elements.append(offer)
         update_plan.append(plan_item)
