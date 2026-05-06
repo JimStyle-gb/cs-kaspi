@@ -24,6 +24,9 @@ SEED_CATEGORY_BY_KEY = {
     "wb_demiand_drinks": "coffee_makers",
     "wb_demiand_blending": "blenders",
     "wb_demiand_accessories": "air_fryer_accessories",
+    # Broad sources are mixed; their category must be detected from WB subject/entity/title.
+    "wb_demiand_brand_all": None,
+    "wb_demiand_search_wide": None,
 }
 
 # WB subject IDs are more reliable than the page/seed category for product type.
@@ -117,7 +120,9 @@ def _market_category(title: str, item: dict[str, Any]) -> str:
         return title_category
     if title_category == "air_fryer_accessories" and subject_category != "air_fryers":
         return title_category
-    return subject_category or entity_category or title_category or _seed_category(item.get("seed_key")) or "air_fryers"
+    seed_category = _seed_category(item.get("seed_key"))
+    broad_source = str(item.get("seed_role") or "") in {"brand_all_primary", "wide_search_review"}
+    return subject_category or entity_category or title_category or seed_category or ("unknown" if broad_source else "air_fryers")
 
 
 def _fallback_category(title: str, seed_key: Any) -> str:
@@ -261,7 +266,16 @@ def _profile_category_compatible(profile: dict[str, Any] | None, market_category
 
 def _brand_ok(item: dict[str, Any], match_text: str) -> bool:
     brand = str(item.get("brand") or "")
-    return is_demiand_text(match_text) or is_demiand_text(brand) or brand.strip().lower() == "demiand"
+    brand_id = str(item.get("brand_id") or "")
+    brand_status = str(item.get("brand_status") or "")
+    return (
+        is_demiand_text(match_text)
+        or is_demiand_text(brand)
+        or brand.strip().lower() == "demiand"
+        or brand_id == "53038"
+        or "brand_id_53038" in brand_status
+        or "title_contains_demiand" in brand_status
+    )
 
 
 def _price_ok(item: dict[str, Any]) -> bool:
@@ -288,6 +302,19 @@ def _market_color(item: dict[str, Any], title: str, fallback: str | None = None)
 
 def _wb_entity(item: dict[str, Any]) -> str | None:
     return str(item.get("wb_entity") or "").strip() or None
+
+
+def _source_audit_fields(item: dict[str, Any]) -> dict[str, Any]:
+    review_only = bool(item.get("review_only"))
+    force_reason = "wide_search_review_only" if review_only else ""
+    return {
+        "seed_role": item.get("seed_role") or "category_seed",
+        "review_only": review_only,
+        "force_review_reason": force_reason,
+        "wb_brand": item.get("brand"),
+        "wb_brand_id": item.get("brand_id"),
+        "wb_brand_status": item.get("brand_status"),
+    }
 
 
 def _market_only_candidate(item: dict[str, Any], title: str, confidence: int, matched_by: str) -> dict[str, Any]:
@@ -333,6 +360,7 @@ def _market_only_candidate(item: dict[str, Any], title: str, confidence: int, ma
         "match_confidence": confidence,
         "matched_by": matched_by,
         "official_match_status": "missing_or_not_confident_official_used_as_optional_enrichment_only",
+        **_source_audit_fields(item),
         "raw": item,
     }
 
@@ -378,6 +406,7 @@ def _official_enriched_candidate(item: dict[str, Any], profile: dict[str, Any], 
         "match_confidence": confidence,
         "matched_by": matched_by,
         "official_match_status": "matched_for_enrichment",
+        **_source_audit_fields(item),
         "raw": item,
     }
 
@@ -391,6 +420,8 @@ def score_listing_cards(listings: list[dict[str, Any]], profiles: list[dict[str,
         title_match_text = " ".join(x for x in [str(item.get("brand") or ""), title] if x).strip()
         match_text = title_match_text or title
         if not _brand_ok(item, match_text):
+            # Wide search can return noisy goods. Keep only rows that can be tied to DEMIAND by
+            # title/brand/official evidence; everything else would only pollute reports.
             continue
 
         market_category = _market_category(title, item)
@@ -431,7 +462,12 @@ def split_by_status(scored: list[dict[str, Any]]) -> dict[str, list[dict[str, An
         has_price = row.get("market_price") not in (None, "", 0)
         is_available = row.get("market_available") is not False
         is_kzt = str(row.get("market_price_currency") or "").upper() == "KZT"
-        if conf >= minimum and has_price and is_available and is_kzt:
+        category_unknown = str(row.get("category_key") or "") == "unknown"
+        if row.get("review_only") or row.get("force_review_reason") or category_unknown:
+            if category_unknown and not row.get("force_review_reason"):
+                row["force_review_reason"] = "unknown_category_from_broad_wb_source"
+            review.append(row)
+        elif conf >= minimum and has_price and is_available and is_kzt:
             accepted.append(row)
         elif conf >= review_min or not is_kzt:
             review.append(row)
