@@ -49,10 +49,12 @@ def build_summary(catalog: dict[str, Any]) -> dict[str, Any]:
 def run() -> dict[str, Any]:
     official_states = load_official_states(required=True)
     products = merge_products(official_states)
-    products = apply_model_specs(products)
     market_state = _load_market_state()
     products = expand_market_variants(products, market_state)
     products = apply_market_state(products, market_state)
+    # model_specs must run after WB expansion/state application so market-only products
+    # can receive specs by aliases from WB titles/model keys.
+    products = apply_model_specs(products)
     products = apply_kaspi_match_state(products, _load_kaspi_match_state())
 
     final_products: list[dict[str, Any]] = []
