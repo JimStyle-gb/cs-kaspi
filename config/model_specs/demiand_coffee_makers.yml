@@ -1,5 +1,21 @@
 brand: DEMIAND
 category_key: coffee_makers
+aliases:
+  kf_3500:
+    contains:
+      - rivo
+      - kf-3500
+      - kf_3500
+  kf_3100:
+    contains:
+      - luno
+      - kf-3100
+      - kf_3100
+  kf_3200:
+    contains:
+      - retro
+      - kf-3200
+      - kf_3200
 models:
   kf_3500:
     enabled: true
@@ -8,6 +24,7 @@ models:
       group_key: coffee_maker_kf_3500
       title_template: VAITAN Demiand кофеварка рожковая RIVO KF-3500, {color_ru}
     known_specs:
+      article: KF-3500
       coffee_machine_type: кофеварка
       coffee_machine_view: рожковая
       coffee_used: молотый, чалды, капсулы
@@ -34,6 +51,7 @@ models:
       group_key: coffee_maker_kf_3100
       title_template: VAITAN Demiand кофеварка рожковая LUNO KF-3100
     known_specs:
+      article: KF-3100
       coffee_machine_type: кофеварка
       coffee_machine_view: рожковая
       coffee_used: молотый, чалды, капсулы
@@ -61,6 +79,7 @@ models:
       group_key: coffee_maker_kf_3200
       title_template: VAITAN Demiand кофеварка рожковая RETRO KF-3200, {color_ru}
     known_specs:
+      article: KF-3200
       coffee_machine_type: кофеварка
       coffee_machine_view: рожковая
       coffee_used: молотый, чалды, капсулы
