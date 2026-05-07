@@ -76,6 +76,55 @@ def _split_urls(value: Any, limit: int) -> list[str]:
     return list(dict.fromkeys(urls))[:limit]
 
 
+
+
+def _expand_wb_image_candidates(urls: list[str], limit: int) -> tuple[list[str], int]:
+    """Добавляет резервные WB-фото для карточек, где первый media-slot может быть видео/битой превью.
+
+    WB иногда отдаёт ссылку вида .../images/big/1.webp, но этот slot может быть недоступен
+    или фактически относиться к видео-превью. При этом реальные фото часто лежат дальше:
+    .../images/big/2.webp, .../3.webp и т.д.
+
+    Поэтому мы не останавливаемся на первой ссылке и аккуратно добавляем соседние номера.
+    Главную ссылку не удаляем: если 1.webp нормальная, она останется первым фото. Если она
+    битая, следующие ссылки станут 01.jpg, 02.jpg ... без дырок в нумерации.
+    """
+    result: list[str] = []
+    generated = 0
+    seen: set[str] = set()
+
+    def add(value: str, is_generated: bool = False) -> None:
+        nonlocal generated
+        if not value or value in seen or len(result) >= limit:
+            return
+        seen.add(value)
+        result.append(value)
+        if is_generated:
+            generated += 1
+
+    pattern = re.compile(r"^(?P<prefix>https?://[^\s]+?/images/big/)(?P<num>\d+)\.(?P<ext>webp|jpg|jpeg|png)(?P<suffix>(?:\?.*)?)$", re.IGNORECASE)
+
+    for url in urls:
+        add(url, False)
+        match = pattern.match(url)
+        if not match:
+            continue
+        prefix = match.group("prefix")
+        ext = match.group("ext")
+        suffix = match.group("suffix") or ""
+        # Чаще всего проблема именно с 1.webp: первый media-slot может быть видео/превью.
+        # Добавляем 2..10, чтобы скачать реальные фото, если 1.webp не отдаётся.
+        for idx in range(2, 11):
+            if len(result) >= limit:
+                break
+            candidate = f"{prefix}{idx}.{ext}{suffix}"
+            add(candidate, True)
+        if len(result) >= limit:
+            break
+
+    return result[:limit], generated
+
+
 def _safe_sku(value: str) -> str:
     sku = re.sub(r"[^0-9A-Za-zА-Яа-я._-]+", "_", value.strip())
     return sku.strip("._-") or "missing_sku"
@@ -199,7 +248,9 @@ def write_image_manifest(data: dict[str, Any]) -> dict[str, Path]:
     - товар считается image-ok, если скачалось минимум min_images_per_product фото;
     - дополнительные битые/timeout/404 ссылки после достижения минимума считаются optional skipped,
       не портят общий статус и не попадают в manifest/queue;
-    - если скачалось меньше минимума, товар получает image warning через summary/manifest.
+    - если скачалось меньше минимума, товар получает image warning через summary/manifest;
+    - для WB-ссылок вида images/big/1.webp дополнительно пробуем 2..10, потому что первый
+      media-slot на WB может быть видео/битым превью, а реальные фото идут дальше.
 
     Качество не режем: JPG/JPEG источника копируется как есть, WebP/PNG конвертируются
     в JPG с высоким качеством без уменьшения размера, если max_side_px=0.
@@ -245,6 +296,7 @@ def write_image_manifest(data: dict[str, Any]) -> dict[str, Path]:
         "failed": 0,
         # skipped_optional_unavailable = дополнительные ссылки не скачались, но минимум фото у товара уже есть.
         "skipped_optional_unavailable": 0,
+        "generated_wb_image_candidate_urls": 0,
         "zip_created": False,
         "download_enabled": download_enabled,
         "enabled": enabled,
@@ -266,7 +318,9 @@ def write_image_manifest(data: dict[str, Any]) -> dict[str, Path]:
             row = payload.get("row") or {}
             sku = _safe_sku(_text(row.get("merchant_sku") or row.get("image_code") or payload.get("product_key")))
             product_key = payload.get("product_key")
-            urls = _split_urls(row.get("image_urls"), int(settings["max_images_per_product"]))
+            urls_raw = _split_urls(row.get("image_urls"), int(settings["max_images_per_product"]))
+            urls, generated_wb_urls = _expand_wb_image_candidates(urls_raw, int(settings["max_images_per_product"]))
+            stats["generated_wb_image_candidate_urls"] += generated_wb_urls
             if not urls:
                 stats["products_without_urls"] += 1
                 product_summaries.append({
